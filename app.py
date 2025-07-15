@@ -83,8 +83,7 @@ if ativos_str:
             st.subheader(f"📈 Preço Ajustado de {list(precos.keys())[0]} ({periodo[0]})")
             st.line_chart(serie)
         else:
-            df_precos = pd.concat(precos.values(), axis=1)
-            df_precos.columns = precos.keys()
+            df_precos = pd.DataFrame(precos)
             st.subheader(f"📈 Preço Ajustado dos Ativos ({periodo[0]})")
             st.line_chart(df_precos)
 
