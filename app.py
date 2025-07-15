@@ -4,9 +4,8 @@ import pandas as pd
 import numpy as np
 import altair as alt
 
-st.set_page_config(page_title="Guia de Investimentos", page_icon="💰", layout="wide")
-
-st.markdown("# Análise Simples de Investimentos")
+st.set_page_config(page_title="App Investimentos", page_icon="💰", layout="wide")
+st.markdown("# 💰 Analisador Simples de Investimentos")
 
 periodo = st.selectbox(
     "Selecione o período de análise:",
@@ -32,13 +31,11 @@ if ativos_str:
     st.write(f"Analisando: **{', '.join(tickers)}** no período de {periodo[0]}")
 
     precos = {}
-    dados_todos = {}
     for t in tickers:
         try:
             dados = yf.download(t, period=periodo[1], progress=False)
             if not dados.empty:
                 precos[t] = dados["Close"]
-                dados_todos[t] = dados
                 st.write(f"✅ Dados de {t} carregados com sucesso.")
             else:
                 st.warning(f"⚠️ Ticker '{t}' não retornou dados.")
@@ -46,7 +43,7 @@ if ativos_str:
             st.error(f"❌ Erro ao baixar dados de {t}: {e}")
 
     if precos:
-       
+        # Cálculo de métricas financeiras
         metrics = {}
         for t, serie in precos.items():
             if (
@@ -76,12 +73,23 @@ if ativos_str:
                     "Índice Sharpe": "N/A",
                 }
 
-        st.subheader("Métricas Financeiras dos Ativos")
+        st.subheader("📊 Métricas Financeiras dos Ativos")
         df_metrics = pd.DataFrame(metrics).T
         st.table(df_metrics)
 
-        # Simulador de carteira
-        st.subheader("Minha carteira")
+        # Exibir gráfico de preços
+        if len(precos) == 1:
+            serie = list(precos.values())[0]
+            st.subheader(f"📈 Preço Ajustado de {list(precos.keys())[0]} ({periodo[0]})")
+            st.line_chart(serie)
+        else:
+            df_precos = pd.concat(precos.values(), axis=1)
+            df_precos.columns = precos.keys()
+            st.subheader(f"📈 Preço Ajustado dos Ativos ({periodo[0]})")
+            st.line_chart(df_precos)
+
+        # Simulador de carteira - fica no final para não "sumir" as métricas
+        st.subheader("🧮 Simulador de Carteira")
         st.write("Informe as quantidades e preços médios para calcular valor e retorno da carteira.")
 
         carteira = {}
@@ -134,16 +142,6 @@ if ativos_str:
                 "Lucro/Prejuízo (%)": "{:.2%}",
             }))
 
-        # Exibir gráfico de preços dos ativos
-        if len(precos) == 1:
-            serie = list(precos.values())[0]
-            st.subheader(f"📈 Preço Ajustado de {list(precos.keys())[0]} ({periodo[0]})")
-            st.line_chart(serie)
-        else:
-            df_precos = pd.concat(precos.values(), axis=1)
-            df_precos.columns = precos.keys()
-            st.subheader(f"📈 Preço Ajustado dos Ativos ({periodo[0]})")
-            st.line_chart(df_precos)
 
 
 
