@@ -42,11 +42,10 @@ if ativos_str:
             st.error(f"❌ Erro ao baixar dados de {t}: {e}")
 
     if precos:
-        # Concatena preços alinhando os índices e nomes
         df_precos = pd.concat(precos, axis=1)
-        df_precos.columns = df_precos.columns.droplevel(0)  # Remove o nível extra do MultiIndex
+        df_precos.columns = df_precos.columns.droplevel(0)
 
-        # Calcular métricas financeiras
+        # Métricas financeiras
         metrics = {}
         for t in df_precos.columns:
             serie = df_precos[t].dropna()
@@ -81,7 +80,7 @@ if ativos_str:
         df_metrics = pd.DataFrame(metrics).T
         st.table(df_metrics)
 
-        # Exibir gráfico de preços
+        # Gráfico de preços
         if len(precos) == 1:
             serie = list(precos.values())[0]
             st.subheader(f"📈 Preço Ajustado de {list(precos.keys())[0]} ({periodo[0]})")
@@ -90,7 +89,7 @@ if ativos_str:
             st.subheader(f"📈 Preço Ajustado dos Ativos ({periodo[0]})")
             st.line_chart(df_precos)
 
-        # Simulador de carteira
+        # Simulador de carteira - cálculo automático
         st.subheader("🧮 Simulador de Carteira")
         st.write("Informe as quantidades e preços médios para calcular valor e retorno da carteira.")
 
@@ -100,63 +99,61 @@ if ativos_str:
             preco_medio = st.number_input(f"Preço médio de compra de {t} (R$):", min_value=0.0, format="%.2f", key=f"pm_{t}")
             carteira[t] = {"quantidade": qtd, "preco_medio": preco_medio}
 
-        if st.button("Calcular Resultado da Carteira"):
-            valor_total = 0.0
-            valor_investido = 0.0
-            resultado = []
+        valor_total = 0.0
+        valor_investido = 0.0
+        resultado = []
 
-            for t in tickers:
-                qtd = carteira[t]["quantidade"]
-                pm = carteira[t]["preco_medio"]
-                serie = df_precos[t].dropna()
-                preco_atual = float(serie.iloc[-1]) if not serie.empty else np.nan
+        for t in tickers:
+            qtd = carteira[t]["quantidade"]
+            pm = carteira[t]["preco_medio"]
+            serie = df_precos[t].dropna()
+            preco_atual = float(serie.iloc[-1]) if not serie.empty else np.nan
 
-                valor_posicao = qtd * preco_atual
-                investimento = qtd * pm
-                lucro_prejuizo = valor_posicao - investimento
+            valor_posicao = qtd * preco_atual
+            investimento = qtd * pm
+            lucro_prejuizo = valor_posicao - investimento
 
-                # Somar valores apenas se forem escalares e numéricos
-                if isinstance(valor_posicao, (int, float, np.floating)) and not np.isnan(valor_posicao):
-                    valor_total += valor_posicao
-                else:
-                    try:
-                        valor_total += float(valor_posicao)
-                    except:
-                        pass
+            if isinstance(valor_posicao, (int, float, np.floating)) and not np.isnan(valor_posicao):
+                valor_total += valor_posicao
+            else:
+                try:
+                    valor_total += float(valor_posicao)
+                except:
+                    pass
 
-                if isinstance(investimento, (int, float, np.floating)) and not np.isnan(investimento):
-                    valor_investido += investimento
-                else:
-                    try:
-                        valor_investido += float(investimento)
-                    except:
-                        pass
+            if isinstance(investimento, (int, float, np.floating)) and not np.isnan(investimento):
+                valor_investido += investimento
+            else:
+                try:
+                    valor_investido += float(investimento)
+                except:
+                    pass
 
-                resultado.append({
-                    "Ativo": t,
-                    "Quantidade": qtd,
-                    "Preço Médio (R$)": pm,
-                    "Preço Atual (R$)": preco_atual,
-                    "Valor Posição (R$)": valor_posicao,
-                    "Investimento (R$)": investimento,
-                    "Lucro/Prejuízo (R$)": lucro_prejuizo,
-                })
+            resultado.append({
+                "Ativo": t,
+                "Quantidade": qtd,
+                "Preço Médio (R$)": pm,
+                "Preço Atual (R$)": preco_atual,
+                "Valor Posição (R$)": valor_posicao,
+                "Investimento (R$)": investimento,
+                "Lucro/Prejuízo (R$)": lucro_prejuizo,
+            })
 
-            df_resultado = pd.DataFrame(resultado)
-            df_resultado["Lucro/Prejuízo (%)"] = (df_resultado["Lucro/Prejuízo (R$)"] / df_resultado["Investimento (R$)"]).fillna(0)
+        df_resultado = pd.DataFrame(resultado)
+        df_resultado["Lucro/Prejuízo (%)"] = (df_resultado["Lucro/Prejuízo (R$)"] / df_resultado["Investimento (R$)"]).fillna(0)
 
-            st.write(f"**Valor total da carteira:** R$ {valor_total:,.2f}")
-            st.write(f"**Valor total investido:** R$ {valor_investido:,.2f}")
-            st.write(f"**Retorno total da carteira:** {(valor_total / valor_investido - 1) if valor_investido != 0 else 0:.2%}")
+        st.write(f"**Valor total da carteira:** R$ {valor_total:,.2f}")
+        st.write(f"**Valor total investido:** R$ {valor_investido:,.2f}")
+        st.write(f"**Retorno total da carteira:** {(valor_total / valor_investido - 1) if valor_investido != 0 else 0:.2%}")
 
-            st.dataframe(df_resultado.style.format({
-                "Preço Médio (R$)": "R$ {:,.2f}",
-                "Preço Atual (R$)": "R$ {:,.2f}",
-                "Valor Posição (R$)": "R$ {:,.2f}",
-                "Investimento (R$)": "R$ {:,.2f}",
-                "Lucro/Prejuízo (R$)": "R$ {:,.2f}",
-                "Lucro/Prejuízo (%)": "{:.2%}",
-            }))
+        st.dataframe(df_resultado.style.format({
+            "Preço Médio (R$)": "R$ {:,.2f}",
+            "Preço Atual (R$)": "R$ {:,.2f}",
+            "Valor Posição (R$)": "R$ {:,.2f}",
+            "Investimento (R$)": "R$ {:,.2f}",
+            "Lucro/Prejuízo (R$)": "R$ {:,.2f}",
+            "Lucro/Prejuízo (%)": "{:.2%}",
+        }))
 
 
 
