@@ -18,7 +18,7 @@ periodo = st.selectbox(
 )
 
 tickers_input = st.text_input(
-    "Digite os tickers separados por vírgula",
+    "Digite os tickers (B3) separados por vírgula",
     placeholder="Ex: PETR4.SA, ITUB3.SA, B3SA3.SA"
 )
 
@@ -47,9 +47,11 @@ for t in tickers:
 if not precos:
     st.stop()
 
-# Concatena preços alinhados
+# Concatena preços alinhados, remove duplicatas caso existam
 precos_df = pd.concat(precos, axis=1)
-precos_df.columns = precos_df.columns.droplevel(0)
+if isinstance(precos_df.columns, pd.MultiIndex):
+    precos_df.columns = precos_df.columns.droplevel(0)
+precos_df = precos_df.loc[:, ~precos_df.columns.duplicated()]
 
 # ------------------------------
 # 3. Gráfico de preços (Plotly)
@@ -68,7 +70,6 @@ st.plotly_chart(fig_price, use_container_width=True)
 # ------------------------------
 
 def simular_caminhos(serie: pd.Series, dias: int, n_sim: int = 500) -> pd.DataFrame:
-    """Simula caminhos de preço via retornos ~ N(mu, sigma)."""
     r = serie.pct_change().dropna()
     mu, sigma = r.mean(), r.std()
     passos = np.random.normal(mu, sigma, (dias, n_sim)).cumsum(axis=0)
@@ -82,23 +83,21 @@ with st.expander("🔮  Previsão de preço (experimental)"):
         if serie.empty:
             continue
         sim = simular_caminhos(serie, dias_forecast)
-        q10 = sim.quantile(0.10, axis=1).values
-        q50 = sim.quantile(0.50, axis=1).values
-        q90 = sim.quantile(0.90, axis=1).values
+        q10, q50, q90 = sim.iloc[-1].quantile([0.1, 0.5, 0.9])
 
         # mini-métricas
         col_l, col_m, col_h = st.columns(3)
-        col_l.metric(f"{t} – 10% baixa", f"R$ {q10[-1]:.2f}")
-        col_m.metric("Mediana", f"R$ {q50[-1]:.2f}")
-        col_h.metric("10% alta", f"R$ {q90[-1]:.2f}")
+        col_l.metric(f"{t} – 10% baixa", f"R$ {q10:.2f}")
+        col_m.metric("Mediana", f"R$ {q50:.2f}")
+        col_h.metric("10% alta", f"R$ {q90:.2f}")
 
         # gráfico faixa p10–p90 e mediana
         x_axis = list(range(1, dias_forecast + 1))
         fig_fc = go.Figure()
-        fig_fc.add_trace(go.Scatter(x=x_axis, y=q90, line=dict(width=0), showlegend=False, hoverinfo='skip'))
-        fig_fc.add_trace(go.Scatter(x=x_axis, y=q10, fill='tonexty', fillcolor='rgba(65,105,225,0.2)',
+        fig_fc.add_trace(go.Scatter(x=x_axis, y=[q90]*dias_forecast, line=dict(width=0), showlegend=False, hoverinfo='skip'))
+        fig_fc.add_trace(go.Scatter(x=x_axis, y=[q10]*dias_forecast, fill='tonexty', fillcolor='rgba(65,105,225,0.2)',
                                     line=dict(width=0), showlegend=False, hoverinfo='skip'))
-        fig_fc.add_trace(go.Scatter(x=x_axis, y=q50, line=dict(color='royalblue'), name='Mediana'))
+        fig_fc.add_trace(go.Scatter(x=x_axis, y=[q50]*dias_forecast, line=dict(color='royalblue'), name='Mediana'))
         fig_fc.update_layout(template='plotly_white', height=250,
                              xaxis_title='Dias à frente', yaxis_title='Preço projetado (R$)',
                              margin=dict(l=0, r=0, t=30, b=0))
@@ -148,8 +147,8 @@ with col2:
         pos = qtd * atual
         inv = qtd * pm
         lucro = pos - inv
-        valor_total += pos
-        invest_tot += inv
+        valor_total += 0 if np.isnan(pos) else pos
+        invest_tot += 0 if np.isnan(inv) else inv
         rows.append({'Ativo': t, 'Qtd': qtd, 'Preço Atual': atual, 'Valor': pos, 'Invest': inv, 'Resultado': lucro})
 
     df_cart = pd.DataFrame(rows)
