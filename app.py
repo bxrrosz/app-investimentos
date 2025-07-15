@@ -8,5 +8,5 @@ ativos = st.text_input("Digite os tickers (ex: PETR4.SA,VALE3.SA)", "PETR4.SA,VA
 
 if ativos:
     lista = [ticker.strip().upper() for ticker in ativos.split(",")]
-    dados = yf.download(lista, period="6mo")["Adj Close"]
+    dados = yf.download(lista, period="6mo")["Close"]
     st.line_chart(dados)
