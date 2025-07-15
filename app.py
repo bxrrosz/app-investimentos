@@ -43,9 +43,14 @@ if ativos_str:
             st.error(f"❌ Erro ao baixar dados de {t}: {e}")
 
     if precos:
-        # Cálculo de métricas financeiras
+        # Concatenar os preços alinhando datas
+        df_precos = pd.concat(precos.values(), axis=1)
+        df_precos.columns = list(precos.keys())
+
+        # Calcular métricas financeiras
         metrics = {}
-        for t, serie in precos.items():
+        for t in df_precos.columns:
+            serie = df_precos[t].dropna()
             if (
                 not serie.empty
                 and pd.api.types.is_numeric_dtype(serie)
@@ -83,11 +88,10 @@ if ativos_str:
             st.subheader(f"📈 Preço Ajustado de {list(precos.keys())[0]} ({periodo[0]})")
             st.line_chart(serie)
         else:
-            df_precos = pd.DataFrame(precos)
             st.subheader(f"📈 Preço Ajustado dos Ativos ({periodo[0]})")
             st.line_chart(df_precos)
 
-        # Simulador de carteira - fica no final para não "sumir" as métricas
+        # Simulador de carteira
         st.subheader("🧮 Simulador de Carteira")
         st.write("Informe as quantidades e preços médios para calcular valor e retorno da carteira.")
 
@@ -106,13 +110,13 @@ if ativos_str:
             for t in tickers:
                 qtd = carteira[t]["quantidade"]
                 pm = carteira[t]["preco_medio"]
-                preco_atual = precos[t].iloc[-1]
+                preco_atual = df_precos[t].dropna().iloc[-1] if not df_precos[t].dropna().empty else np.nan
 
                 valor_posicao = qtd * preco_atual
                 investimento = qtd * pm
                 lucro_prejuizo = valor_posicao - investimento
 
-                valor_total += valor_posicao
+                valor_total += valor_posicao if not np.isnan(valor_posicao) else 0
                 valor_investido += investimento
 
                 resultado.append({
@@ -140,7 +144,6 @@ if ativos_str:
                 "Lucro/Prejuízo (R$)": "R$ {:,.2f}",
                 "Lucro/Prejuízo (%)": "{:.2%}",
             }))
-
 
 
 
