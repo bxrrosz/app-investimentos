@@ -2,6 +2,22 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import altair as alt
+import numpy as np  
+
+if len(precos) == 1:
+    serie = list(precos.values())[0]
+    st.subheader(f"📈 Preço Ajustado de {list(precos.keys())[0]} (últimos 6 meses)")
+    st.line_chart(serie)
+
+    if (not serie.empty and
+        not np.isnan(serie.iloc[0]) and
+        not np.isnan(serie.iloc[-1]) and
+        serie.iloc[0] != 0):
+        
+        rentab = (serie.iloc[-1] / serie.iloc[0]) - 1
+        st.markdown(f"**Rentabilidade:** {rentab:.2%}")
+    else:
+        st.warning("Não foi possível calcular a rentabilidade devido a dados insuficientes ou inválidos.")
 
 st.set_page_config(page_title="App Investimentos", page_icon="💰", layout="wide")
 
