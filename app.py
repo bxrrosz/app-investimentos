@@ -3,9 +3,9 @@ import yfinance as yf
 import pandas as pd
 import altair as alt
 
-st.set_page_config(page_title="App Investimentos", page_icon="💰", layout="wide")
+st.set_page_config(page_title="Guia de Investimentos", page_icon="💰", layout="wide")
 
-st.markdown("# 💰 Analisador Simples de Investimentos")
+st.markdown("# Análise Simples de Investimentos")
 
 periodo = st.selectbox(
     "Selecione o período de análise:",
