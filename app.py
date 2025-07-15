@@ -48,25 +48,47 @@ if ativos_str:
 
         # Gráfico interativo com Plotly
         st.subheader(f"📈 Gráfico Interativo de Preços Ajustados ({periodo[0]})")
-
         fig = go.Figure()
         for t in df_precos.columns:
-            fig.add_trace(go.Scatter(
-                x=df_precos.index,
-                y=df_precos[t],
-                mode='lines',
-                name=t
-            ))
-
-        fig.update_layout(
-            xaxis_title="Data",
-            yaxis_title="Preço Ajustado (R$)",
-            template="plotly_white",
-            hovermode="x unified",
-            legend_title_text="Ativos",
-            height=500,
-        )
+            fig.add_trace(go.Scatter(x=df_precos.index, y=df_precos[t], mode='lines', name=t))
+        fig.update_layout(xaxis_title="Data", yaxis_title="Preço Ajustado (R$)",
+                          template="plotly_white", hovermode="x unified",
+                          legend_title_text="Ativos", height=500)
         st.plotly_chart(fig, use_container_width=True)
+
+        # ----------------- BLOCO DE PREVISÃO -----------------
+        def simular_caminhos(serie, dias=22, n_sim=500):
+            """Monte Carlo simples baseada em retornos diários."""
+            retornos = serie.pct_change().dropna()
+            mu, sigma = retornos.mean(), retornos.std()
+            passos = np.random.normal(mu, sigma, (dias, n_sim)).cumsum(axis=0)
+            sim = np.exp(passos) * serie.iloc[-1]
+            return pd.DataFrame(sim)
+
+        with st.expander("🔮  Ver projeção de preço (experimental)"):
+            horizonte = st.slider("Horizonte (dias de pregão)", 5, 252, 22)
+            st.caption("*Simulação baseada em comportamento histórico — não é recomendação de investimento.*")
+            for t in df_precos.columns:
+                serie = df_precos[t].dropna()
+                if serie.empty:
+                    continue
+                sim = simular_caminhos(serie, dias=horizonte)
+                p10, p50, p90 = sim.iloc[-1].quantile([0.1, 0.5, 0.9])
+                st.markdown(
+                    f"**{t}**  \nPreço atual: **R$ {serie.iloc[-1]:.2f}**  \n"
+                    f"Em {horizonte} dias (estimativa): 10 % → **R$ {p10:.2f}**, "
+                    f"Mediana → **R$ {p50:.2f}**, 90 % → **R$ {p90:.2f}**"
+                )
+                fig_sim = go.Figure()
+                fig_sim.add_trace(
+                    go.Scatter(x=sim.index, y=sim.iloc[:, :50], mode="lines", line=dict(width=1, color="royalblue"),
+                                hoverinfo="skip", showlegend=False)
+                )
+                fig_sim.update_layout(height=250, margin=dict(l=0, r=0, t=30, b=0),
+                                      template="plotly_white",
+                                      title=f"{t}: 50 trajetórias simuladas")
+                st.plotly_chart(fig_sim, use_container_width=True)
+        # -----------------------------------------------------
 
         # Layout em colunas para métricas e simulador
         col1, col2 = st.columns([2, 1])
@@ -76,19 +98,13 @@ if ativos_str:
             metrics = {}
             for t in df_precos.columns:
                 serie = df_precos[t].dropna()
-                if (
-                    not serie.empty
-                    and pd.api.types.is_numeric_dtype(serie)
-                    and pd.notna(serie.iloc[0])
-                    and pd.notna(serie.iloc[-1])
-                    and serie.iloc[0] != 0
-                ):
+                if (not serie.empty and pd.api.types.is_numeric_dtype(serie)
+                        and pd.notna(serie.iloc[0]) and pd.notna(serie.iloc[-1]) and serie.iloc[0] != 0):
                     retornos_diarios = serie.pct_change().dropna()
                     retorno_total = (serie.iloc[-1] / serie.iloc[0]) - 1
                     retorno_medio_ano = retornos_diarios.mean() * 252
                     volatilidade_ano = retornos_diarios.std() * np.sqrt(252)
                     sharpe = retorno_medio_ano / volatilidade_ano if volatilidade_ano != 0 else np.nan
-
                     metrics[t] = {
                         "Retorno Total (%)": f"{retorno_total:.2%}",
                         "Retorno Médio Anualizado (%)": f"{retorno_medio_ano:.2%}",
@@ -96,55 +112,33 @@ if ativos_str:
                         "Índice Sharpe": f"{sharpe:.2f}" if not np.isnan(sharpe) else "N/A",
                     }
                 else:
-                    metrics[t] = {
-                        "Retorno Total (%)": "N/A",
-                        "Retorno Médio Anualizado (%)": "N/A",
-                        "Volatilidade Anualizada (%)": "N/A",
-                        "Índice Sharpe": "N/A",
-                    }
-            df_metrics = pd.DataFrame(metrics).T
-            st.table(df_metrics)
+                    metrics[t] = {k: "N/A" for k in [
+                        "Retorno Total (%)", "Retorno Médio Anualizado (%)", "Volatilidade Anualizada (%)", "Índice Sharpe"]}
+            st.table(pd.DataFrame(metrics).T)
 
         with col2:
             st.subheader("🧮 Simulador de Carteira")
             st.write("Informe quantidades e preços médios para calcular retorno.")
-
             carteira = {}
             for t in tickers:
                 qtd = st.number_input(f"Quantidade de {t}:", min_value=0, step=1, key=f"qtd_{t}")
                 preco_medio = st.number_input(f"Preço médio de compra de {t} (R$):", min_value=0.0, format="%.2f", key=f"pm_{t}")
                 carteira[t] = {"quantidade": qtd, "preco_medio": preco_medio}
 
-            valor_total = 0.0
-            valor_investido = 0.0
+            valor_total = valor_investido = 0.0
             resultado = []
-
             for t in tickers:
                 qtd = carteira[t]["quantidade"]
                 pm = carteira[t]["preco_medio"]
                 serie = df_precos[t].dropna()
                 preco_atual = float(serie.iloc[-1]) if not serie.empty else np.nan
-
                 valor_posicao = qtd * preco_atual
                 investimento = qtd * pm
                 lucro_prejuizo = valor_posicao - investimento
-
-                if isinstance(valor_posicao, (int, float, np.floating)) and not np.isnan(valor_posicao):
+                if np.isfinite(valor_posicao):
                     valor_total += valor_posicao
-                else:
-                    try:
-                        valor_total += float(valor_posicao)
-                    except:
-                        pass
-
-                if isinstance(investimento, (int, float, np.floating)) and not np.isnan(investimento):
+                if np.isfinite(investimento):
                     valor_investido += investimento
-                else:
-                    try:
-                        valor_investido += float(investimento)
-                    except:
-                        pass
-
                 resultado.append({
                     "Ativo": t,
                     "Quantidade": qtd,
@@ -156,12 +150,13 @@ if ativos_str:
                 })
 
             df_resultado = pd.DataFrame(resultado)
-            df_resultado["Lucro/Prejuízo (%)"] = (df_resultado["Lucro/Prejuízo (R$)"] / df_resultado["Investimento (R$)"]).fillna(0)
+            df_resultado["Lucro/Prejuízo (%)"] = (
+                df_resultado["Lucro/Prejuízo (R$)"] / df_resultado["Investimento (R$)"]
+            ).replace([np.inf, -np.inf], np.nan).fillna(0)
 
             st.write(f"**Valor total da carteira:** R$ {valor_total:,.2f}")
             st.write(f"**Valor total investido:** R$ {valor_investido:,.2f}")
             st.write(f"**Retorno total da carteira:** {(valor_total / valor_investido - 1) if valor_investido != 0 else 0:.2%}")
-
             st.dataframe(df_resultado.style.format({
                 "Preço Médio (R$)": "R$ {:,.2f}",
                 "Preço Atual (R$)": "R$ {:,.2f}",
@@ -170,6 +165,7 @@ if ativos_str:
                 "Lucro/Prejuízo (R$)": "R$ {:,.2f}",
                 "Lucro/Prejuízo (%)": "{:.2%}",
             }))
+
 
 
 
