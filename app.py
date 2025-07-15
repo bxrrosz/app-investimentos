@@ -35,7 +35,7 @@ if ativos_str:
     for t in tickers:
         dados = yf.download(t, period=periodo[1], progress=False)
         if not dados.empty:
-            precos[t] = dados["Adj Close"]
+            precos[t] = dados["Close"]
         else:
             st.warning(f"Ticker '{t}' não encontrado ou inválido.")
 
