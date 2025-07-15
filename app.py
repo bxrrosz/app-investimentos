@@ -49,7 +49,7 @@ if ativos_str:
             st.markdown(f"**Rentabilidade:** {rentab:.2%}")
 
         else:
-            df_precos = pd.concat(precos.values(),_
+            df_precos = pd.concat(precos.values(),_)
 
 
 
