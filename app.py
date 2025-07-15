@@ -36,7 +36,7 @@ if ativos_str:
         try:
             dados = yf.download(t, period=periodo[1], progress=False)
             if not dados.empty:
-                precos[t] = dados["Adj Close"]
+                precos[t] = dados["Close"]
                 st.write(f"✅ Dados de {t} carregados com sucesso.")
             else:
                 st.warning(f"⚠️ Ticker '{t}' não retornou dados.")
