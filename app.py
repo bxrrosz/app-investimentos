@@ -34,7 +34,7 @@ if ativos_str:
         try:
             dados = yf.download(t, period=periodo[1], progress=False)
             if not dados.empty:
-                precos[t] = dados["Close"]
+                precos[t] = dados["Adj Close"]
                 st.write(f"✅ Dados de {t} carregados com sucesso.")
             else:
                 st.warning(f"⚠️ Ticker '{t}' não retornou dados.")
@@ -98,26 +98,39 @@ if ativos_str:
         for t in tickers:
             qtd = st.number_input(f"Quantidade de {t}:", min_value=0, step=1, key=f"qtd_{t}")
             preco_medio = st.number_input(f"Preço médio de compra de {t} (R$):", min_value=0.0, format="%.2f", key=f"pm_{t}")
-
             carteira[t] = {"quantidade": qtd, "preco_medio": preco_medio}
 
         if st.button("Calcular Resultado da Carteira"):
-            valor_total = 0
-            valor_investido = 0
+            valor_total = 0.0
+            valor_investido = 0.0
             resultado = []
 
             for t in tickers:
                 qtd = carteira[t]["quantidade"]
                 pm = carteira[t]["preco_medio"]
                 serie = df_precos[t].dropna()
-                preco_atual = serie.iloc[-1] if not serie.empty else np.nan
+                preco_atual = float(serie.iloc[-1]) if not serie.empty else np.nan
 
                 valor_posicao = qtd * preco_atual
                 investimento = qtd * pm
                 lucro_prejuizo = valor_posicao - investimento
 
-                valor_total += valor_posicao if not np.isnan(valor_posicao) else 0
-                valor_investido += investimento
+                # Somar valores apenas se forem escalares e numéricos
+                if isinstance(valor_posicao, (int, float, np.floating)) and not np.isnan(valor_posicao):
+                    valor_total += valor_posicao
+                else:
+                    try:
+                        valor_total += float(valor_posicao)
+                    except:
+                        pass
+
+                if isinstance(investimento, (int, float, np.floating)) and not np.isnan(investimento):
+                    valor_investido += investimento
+                else:
+                    try:
+                        valor_investido += float(investimento)
+                    except:
+                        pass
 
                 resultado.append({
                     "Ativo": t,
@@ -144,7 +157,6 @@ if ativos_str:
                 "Lucro/Prejuízo (R$)": "R$ {:,.2f}",
                 "Lucro/Prejuízo (%)": "{:.2%}",
             }))
-
 
 
 
