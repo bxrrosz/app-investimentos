@@ -2,7 +2,6 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import altair as alt
 
 st.set_page_config(page_title="App Investimentos", page_icon="💰", layout="wide")
 st.markdown("# 💰 Analisador Simples de Investimentos")
@@ -43,9 +42,9 @@ if ativos_str:
             st.error(f"❌ Erro ao baixar dados de {t}: {e}")
 
     if precos:
-        # Concatenar os preços alinhando datas
-        df_precos = pd.concat(precos.values(), axis=1)
-        df_precos.columns = list(precos.keys())
+        # Concatena preços alinhando os índices e nomes
+        df_precos = pd.concat(precos, axis=1)
+        df_precos.columns = df_precos.columns.droplevel(0)  # Remove o nível extra do MultiIndex
 
         # Calcular métricas financeiras
         metrics = {}
@@ -110,7 +109,8 @@ if ativos_str:
             for t in tickers:
                 qtd = carteira[t]["quantidade"]
                 pm = carteira[t]["preco_medio"]
-                preco_atual = df_precos[t].dropna().iloc[-1] if not df_precos[t].dropna().empty else np.nan
+                serie = df_precos[t].dropna()
+                preco_atual = serie.iloc[-1] if not serie.empty else np.nan
 
                 valor_posicao = qtd * preco_atual
                 investimento = qtd * pm
@@ -144,6 +144,7 @@ if ativos_str:
                 "Lucro/Prejuízo (R$)": "R$ {:,.2f}",
                 "Lucro/Prejuízo (%)": "{:.2%}",
             }))
+
 
 
 
