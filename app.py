@@ -25,7 +25,7 @@ periodo = st.selectbox(
 # Barra de pesquisa com exemplo fixo
 ativos_str = st.text_input(
     "Digite os tickers da bolsa separados por vírgula",
-    value="",  # exemplo fixo para ajudar
+    value="PETR4.SA, ITUB3.SA, AAPL, MSFT",  # exemplo fixo para ajudar
     help="Exemplo: PETR4.SA, ITUB3.SA, AAPL, MSFT"
 )
 
@@ -202,4 +202,3 @@ if ativos_str:
                 "Lucro/Prejuízo (R$)": "R$ {:,.2f}",
                 "Lucro/Prejuízo (%)": "{:.2%}",
             }))
-
