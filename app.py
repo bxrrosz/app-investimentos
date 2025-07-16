@@ -23,10 +23,10 @@ periodo = st.selectbox(
 
 ativos_str = st.text_input(
     "Digite os tickers da bolsa separados por vírgula",
-    placeholder="Ex: PETR4.SA, ITUB3.SA, AAPL, MSFT"
+    placeholder="Ex: PETR4.SA, ITUB3.SA, AAPL, MSFT",
 )
 
-if ativos_str:
+if ativos_str.strip():
     tickers = [t.strip().upper() for t in ativos_str.split(",") if t.strip()]
     st.write(f"Analisando: **{', '.join(tickers)}** no período de {periodo[0]}")
 
@@ -44,9 +44,14 @@ if ativos_str:
 
     if precos:
         df_precos = pd.concat(precos, axis=1)
-        df_precos.columns = df_precos.columns.droplevel(0)
+        # Dropar nível extra caso tenha multiindex no columns
+        if isinstance(df_precos.columns, pd.MultiIndex):
+            df_precos.columns = df_precos.columns.droplevel(0)
 
-        # Baixa taxa USD-BRL para o período completo, sem progress bar
+        # Remove índices duplicados para evitar conflitos ao atribuir colunas
+        df_precos = df_precos[~df_precos.index.duplicated(keep='first')]
+
+        # Converter ativos internacionais para BRL usando taxa USD-BRL
         try:
             usd_brl = yf.download("USDBRL=X", period=periodo[1], progress=False)["Close"]
             if usd_brl.empty:
@@ -60,11 +65,10 @@ if ativos_str:
             ativos_internacionais = [t for t in df_precos.columns if not t.endswith(".SA")]
             for t in ativos_internacionais:
                 serie_ativo = df_precos[t]
-                # Reindexa a taxa para o índice do ativo e preenche faltantes
                 taxa_alinhada = usd_brl.reindex(serie_ativo.index).fillna(method="bfill").fillna(method="ffill")
-                # Multiplica e reindexa para o índice original do df_precos para evitar erro
-                multiplicado = (serie_ativo * taxa_alinhada).reindex(df_precos.index)
-                df_precos[t] = multiplicado
+                multiplicado = serie_ativo * taxa_alinhada
+                multiplicado_reindexado = multiplicado.reindex(df_precos.index)
+                df_precos[t] = multiplicado_reindexado
             st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
 
         # Gráfico interativo com Plotly
@@ -143,28 +147,15 @@ if ativos_str:
             for t in tickers:
                 qtd = carteira[t]["quantidade"]
                 pm = carteira[t]["preco_medio"]
-                serie = df_precos[t].dropna()
+                serie = df_precos[t].dropna() if t in df_precos.columns else pd.Series(dtype=float)
                 preco_atual = float(serie.iloc[-1]) if not serie.empty else np.nan
 
                 valor_posicao = qtd * preco_atual
                 investimento = qtd * pm
                 lucro_prejuizo = valor_posicao - investimento
 
-                if isinstance(valor_posicao, (int, float, np.floating)) and not np.isnan(valor_posicao):
-                    valor_total += valor_posicao
-                else:
-                    try:
-                        valor_total += float(valor_posicao)
-                    except:
-                        pass
-
-                if isinstance(investimento, (int, float, np.floating)) and not np.isnan(investimento):
-                    valor_investido += investimento
-                else:
-                    try:
-                        valor_investido += float(investimento)
-                    except:
-                        pass
+                valor_total += valor_posicao if pd.notna(valor_posicao) else 0
+                valor_investido += investimento if pd.notna(investimento) else 0
 
                 resultado.append({
                     "Ativo": t,
@@ -192,4 +183,4 @@ if ativos_str:
                 "Lucro/Prejuízo (%)": "{:.2%}",
             }))
 else:
-    st.info("Digite os tickers dos ativos para análise acima.")
+    st.info("Por favor, insira um ou mais tickers separados por vírgula para começar a análise.")
