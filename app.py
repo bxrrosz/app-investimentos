@@ -91,12 +91,20 @@ with st.expander("🔮 Projeção de preço (experimental)"):
         c3.metric("10% alta", f"R$ {q90:.2f}")
 
         x = list(range(1, dias_fwd + 1))
-        fig_fc = go.Figure([
-            go.Scatter(x=x, y=[q90] * dias_fwd, line=dict(width=0), hoverinfo="skip", showlegend=False),
-            go.Scatter(x=x, y=[q10] * dias_fwd, fill="tonexty", fillcolor="rgba(65,105,225,0.2)",
-                        line=dict(width=0), hoverinfo="skip", showlegend=False),
-            go.Scatter(x=x, y=[q50] * dias_fwd, line=dict(color="royalblue"), name="Mediana"),
-        ])
+        q10_list = [q10] * dias_fwd
+        q90_list = [q90] * dias_fwd
+        q50_list = [q50] * dias_fwd
+
+        fig_fc = go.Figure()
+        # faixa inferior
+        fig_fc.add_trace(go.Scatter(x=x, y=q10_list, line=dict(width=0), name="10% baixa",
+                                    mode="lines", hoverinfo="skip", showlegend=False))
+        # faixa superior + preenchimento
+        fig_fc.add_trace(go.Scatter(x=x, y=q90_list, fill="tonexty", fillcolor="rgba(65,105,225,0.2)",
+                                    line=dict(width=0), name="10% alta", hoverinfo="skip", showlegend=False))
+        # mediana
+        fig_fc.add_trace(go.Scatter(x=x, y=q50_list, line=dict(color="royalblue"), name="Mediana"))
+
         fig_fc.update_layout(template="plotly_white", height=250,
                              margin=dict(l=0, r=0, t=30, b=0),
                              xaxis_title="Dias", yaxis_title="Preço proj. (BRL)")
