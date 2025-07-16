@@ -47,30 +47,30 @@ if ativos_str:
         df_precos.columns = df_precos.columns.droplevel(0)
 
         # Baixa taxa USD-BRL para o período completo, sem progress bar
+        usd_brl = None
         try:
-            usd_brl = yf.download("USDBRL=X", period=periodo[1], progress=False)["Close"]
-            if usd_brl.empty:
-                usd_brl = None
-                st.warning("Não foi possível carregar a taxa de câmbio USDBRL.")
+            usd_brl_df = yf.download("USDBRL=X", period=periodo[1], progress=False)
+            if not usd_brl_df.empty:
+                usd_brl = usd_brl_df["Close"]
+            else:
+                st.warning("⚠️ Taxa de câmbio USDBRL não retornou dados.")
         except Exception as e:
-            usd_brl = None
-            st.warning(f"Erro ao carregar taxa de câmbio USDBRL: {e}")
+            st.warning(f"⚠️ Erro ao carregar taxa de câmbio USDBRL: {e}")
 
-        # Converte ativos internacionais para BRL
+        # Converte ativos internacionais para BRL, se a taxa USD-BRL estiver disponível
         if usd_brl is not None and isinstance(usd_brl, pd.Series):
             for t in df_precos.columns:
-                if not t.endswith(".SA"):  # Considera como ativo internacional
+                if not t.endswith(".SA"):  # Considera ativo internacional
                     serie_t = df_precos[t].dropna()
                     if serie_t.empty:
                         continue
-                    # Join para alinhar datas
                     aligned = serie_t.to_frame().join(usd_brl.to_frame(name="usd_brl"), how="left")
                     aligned["usd_brl"].fillna(method="ffill", inplace=True)
                     aligned["usd_brl"].fillna(method="bfill", inplace=True)
                     df_precos.loc[aligned.index, t] = aligned[t] * aligned["usd_brl"]
             st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
         else:
-            st.warning("Taxa de câmbio USD-BRL não disponível ou inválida, ativos internacionais não convertidos.")
+            st.info("Taxa de câmbio USD-BRL não disponível, ativos internacionais permanecem na moeda original.")
 
         # Gráfico interativo com Plotly
         st.subheader(f"📈 Gráfico Interativo de Preços Ajustados ({periodo[0]})")
