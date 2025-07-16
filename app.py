@@ -3,6 +3,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+from statsmodels.tsa.arima.model import ARIMA
 from datetime import timedelta
 
 st.set_page_config(page_title="App Investimentos", page_icon="💰", layout="wide")
@@ -49,7 +50,7 @@ if ativos_str:
     if precos:
         df_precos = pd.concat(precos, axis=1)
 
-        # Dropar nível extra se MultiIndex
+        # Remover multiindex colunas se houver
         if isinstance(df_precos.columns, pd.MultiIndex):
             df_precos.columns = df_precos.columns.droplevel(0)
 
@@ -64,22 +65,20 @@ if ativos_str:
             st.warning(f"Erro ao carregar taxa de câmbio USDBRL: {e}")
 
         if usd_brl is not None:
-            # Identifica ativos internacionais (que não terminam com .SA)
-            ativos_internacionais = [t for t in df_precos.columns if not t.endswith(".SA")]
+            # Ativos internacionais
+            ativos_intl = [t for t in df_precos.columns if not t.endswith(".SA")]
 
-            # Alinha o índice da taxa de câmbio com df_precos, preenchendo valores faltantes
+            # Alinha índice da taxa com o df_precos, preenche valores faltantes
             usd_brl_alinhado = usd_brl.reindex(df_precos.index).fillna(method="ffill").fillna(method="bfill")
 
-            for t in ativos_internacionais:
-                serie_ativo = df_precos[t].reindex(df_precos.index)
-                multiplicado = serie_ativo * usd_brl_alinhado
-                df_precos[t] = multiplicado.values  # .values para evitar problemas de alinhamento
+            for t in ativos_intl:
+                serie = df_precos[t].reindex(df_precos.index)
+                # Multiplica usando numpy array para evitar problemas de alinhamento
+                df_precos[t] = (serie.values * usd_brl_alinhado.values)
 
             st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
 
-        # --- Resolver problema de intervalos no gráfico ---
-
-        # Preenche dados faltantes via interpolação linear para evitar 'buracos' no gráfico
+        # --- Preencher dados faltantes (interpolação) para evitar buracos no gráfico ---
         df_precos_interp = df_precos.interpolate(method='linear').fillna(method='bfill').fillna(method='ffill')
 
         # --- Gráfico Interativo ---
@@ -87,7 +86,6 @@ if ativos_str:
 
         fig = go.Figure()
 
-        # Traçar preços históricos
         for t in df_precos_interp.columns:
             fig.add_trace(go.Scatter(
                 x=df_precos_interp.index,
@@ -96,54 +94,30 @@ if ativos_str:
                 name=t
             ))
 
-        # --- Previsão simples para 30 dias à frente (usando média e std de retornos) ---
-
+        # --- Previsão usando ARIMA simples (1,1,1) para cada ativo, 30 dias úteis ---
         dias_fwd = 30
         last_date = df_precos_interp.index[-1]
         forecast_dates = pd.date_range(start=last_date + timedelta(days=1), periods=dias_fwd, freq='B')
 
         for t in df_precos_interp.columns:
-            serie = df_precos_interp[t]
-            if len(serie) < 2:
-                continue
-            retornos = serie.pct_change().dropna()
-            media_retorno = retornos.mean()
-            std_retorno = retornos.std()
+            serie = df_precos_interp[t].dropna()
 
-            # Modelo muito simples de forecast: assume retorno médio constante + banda de volatilidade
-            ultimo_preco = serie.iloc[-1]
-            previsao_media = [ultimo_preco * ((1 + media_retorno) ** i) for i in range(1, dias_fwd + 1)]
-            previsao_q90 = [p * (1 + std_retorno) for p in previsao_media]
-            previsao_q10 = [p * (1 - std_retorno) for p in previsao_media]
+            # Tentativa para rodar ARIMA e gerar forecast
+            try:
+                model = ARIMA(serie, order=(1,1,1))
+                model_fit = model.fit()
+                forecast = model_fit.forecast(steps=dias_fwd)
 
-            fig.add_trace(go.Scatter(
-                x=forecast_dates,
-                y=previsao_media,
-                mode='lines',
-                line=dict(dash='dash'),
-                name=f"{t} Previsão Média"
-            ))
-            fig.add_trace(go.Scatter(
-                x=forecast_dates,
-                y=previsao_q90,
-                mode='lines',
-                line=dict(color='rgba(0,0,0,0)'),
-                showlegend=False,
-                hoverinfo='skip',
-                fill=None,
-                name=f"{t} Banda Superior"
-            ))
-            fig.add_trace(go.Scatter(
-                x=forecast_dates,
-                y=previsao_q10,
-                mode='lines',
-                fill='tonexty',
-                fillcolor='rgba(0,100,80,0.2)',
-                line=dict(color='rgba(0,0,0,0)'),
-                showlegend=False,
-                hoverinfo='skip',
-                name=f"{t} Banda Inferior"
-            ))
+                fig.add_trace(go.Scatter(
+                    x=forecast_dates,
+                    y=forecast,
+                    mode='lines',
+                    line=dict(dash='dash'),
+                    name=f"{t} Previsão ARIMA"
+                ))
+            except Exception as e:
+                # Se ARIMA falhar, apenas não exibe previsão
+                pass
 
         fig.update_layout(
             xaxis_title="Data",
