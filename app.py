@@ -3,6 +3,9 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+from statsmodels.tsa.arima.model import ARIMA
+import warnings
+warnings.filterwarnings("ignore")
 
 st.set_page_config(page_title="App Investimentos", page_icon="💰", layout="wide")
 st.markdown("# 💰 Analisador Simples de Investimentos")
@@ -47,9 +50,13 @@ if ativos_str:
 
     if precos:
         df_precos = pd.concat(precos, axis=1)
-        # Quando concat com dict, fica multiindex col, drop nivel 0
         if isinstance(df_precos.columns, pd.MultiIndex):
             df_precos.columns = df_precos.columns.droplevel(0)
+
+        # Preencher índice com datas contínuas para evitar intervalos vazios no gráfico
+        full_index = pd.date_range(start=df_precos.index.min(), end=df_precos.index.max(), freq='B')  # freq business day
+        df_precos = df_precos.reindex(full_index)
+        df_precos = df_precos.fillna(method='ffill').fillna(method='bfill')
 
         # Baixa taxa USD-BRL para o período escolhido
         try:
@@ -63,139 +70,204 @@ if ativos_str:
 
         # Converte os ativos internacionais para BRL
         if usd_brl is not None:
-            # Garantir que usd_brl seja Series
             usd_brl_series = usd_brl if isinstance(usd_brl, pd.Series) else usd_brl.iloc[:, 0]
+            usd_brl_series = usd_brl_series.reindex(df_precos.index).fillna(method="ffill").fillna(method="bfill")
             for t in df_precos.columns:
-                if not t.endswith(".SA"):  # Assume internacional se não termina com .SA
-                    # Junta pela data para alinhar datas
-                    aligned = df_precos[t].to_frame().join(usd_brl_series.rename("usd_brl"), how="left")
-                    aligned["usd_brl"].fillna(method="ffill", inplace=True)
-                    aligned["usd_brl"].fillna(method="bfill", inplace=True)
-                    # Multiplica pela taxa para converter em BRL
-                    df_precos[t] = aligned[t] * aligned["usd_brl"]
+                if not t.endswith(".SA"):  # Internacional
+                    df_precos[t] = df_precos[t] * usd_brl_series
             st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
 
-        # Gráfico interativo dos preços ajustados
-        st.subheader(f"📈 Gráfico Interativo de Preços Ajustados ({periodo[0]})")
+        # Aba para escolher o modo: Análise ou Previsão
+        aba = st.radio("Escolha a aba:", ["Análise de Preços", "Previsão com ARIMA"])
 
-        fig = go.Figure()
-        for t in df_precos.columns:
-            fig.add_trace(go.Scatter(
-                x=df_precos.index,
-                y=df_precos[t],
-                mode='lines',
-                name=t
-            ))
+        if aba == "Análise de Preços":
+            st.subheader(f"📈 Gráfico Interativo de Preços Ajustados ({periodo[0]})")
 
-        fig.update_layout(
-            xaxis_title="Data",
-            yaxis_title="Preço Ajustado (R$)",
-            template="plotly_white",
-            hovermode="x unified",
-            legend_title_text="Ativos",
-            height=500,
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-        # Layout em colunas para métricas e simulador
-        col1, col2 = st.columns([2, 1])
-
-        with col1:
-            st.subheader("📊 Métricas Financeiras dos Ativos")
-            metrics = {}
+            fig = go.Figure()
             for t in df_precos.columns:
-                serie = df_precos[t].dropna()
-                if (
-                    not serie.empty
-                    and pd.api.types.is_numeric_dtype(serie)
-                    and pd.notna(serie.iloc[0])
-                    and pd.notna(serie.iloc[-1])
-                    and serie.iloc[0] != 0
-                ):
-                    retornos_diarios = serie.pct_change().dropna()
-                    retorno_total = (serie.iloc[-1] / serie.iloc[0]) - 1
-                    retorno_medio_ano = retornos_diarios.mean() * 252
-                    volatilidade_ano = retornos_diarios.std() * np.sqrt(252)
-                    sharpe = retorno_medio_ano / volatilidade_ano if volatilidade_ano != 0 else np.nan
+                fig.add_trace(go.Scatter(
+                    x=df_precos.index,
+                    y=df_precos[t],
+                    mode='lines',
+                    name=t
+                ))
 
-                    metrics[t] = {
-                        "Retorno Total (%)": f"{retorno_total:.2%}",
-                        "Retorno Médio Anualizado (%)": f"{retorno_medio_ano:.2%}",
-                        "Volatilidade Anualizada (%)": f"{volatilidade_ano:.2%}",
-                        "Índice Sharpe": f"{sharpe:.2f}" if not np.isnan(sharpe) else "N/A",
-                    }
-                else:
-                    metrics[t] = {
-                        "Retorno Total (%)": "N/A",
-                        "Retorno Médio Anualizado (%)": "N/A",
-                        "Volatilidade Anualizada (%)": "N/A",
-                        "Índice Sharpe": "N/A",
-                    }
-            df_metrics = pd.DataFrame(metrics).T
-            st.table(df_metrics)
+            fig.update_layout(
+                xaxis_title="Data",
+                yaxis_title="Preço Ajustado (R$)",
+                template="plotly_white",
+                hovermode="x unified",
+                legend_title_text="Ativos",
+                height=500,
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
-        with col2:
-            st.subheader("🧮 Simulador de Carteira")
-            st.write("Informe quantidades e preços médios para calcular retorno.")
+            # Métricas e simulador ficam abaixo
+            col1, col2 = st.columns([2, 1])
 
-            carteira = {}
-            for t in tickers:
-                qtd = st.number_input(f"Quantidade de {t}:", min_value=0, step=1, key=f"qtd_{t}")
-                preco_medio = st.number_input(f"Preço médio de compra de {t} (R$):", min_value=0.0, format="%.2f", key=f"pm_{t}")
-                carteira[t] = {"quantidade": qtd, "preco_medio": preco_medio}
+            with col1:
+                st.subheader("📊 Métricas Financeiras dos Ativos")
+                metrics = {}
+                for t in df_precos.columns:
+                    serie = df_precos[t].dropna()
+                    if (
+                        not serie.empty
+                        and pd.api.types.is_numeric_dtype(serie)
+                        and pd.notna(serie.iloc[0])
+                        and pd.notna(serie.iloc[-1])
+                        and serie.iloc[0] != 0
+                    ):
+                        retornos_diarios = serie.pct_change().dropna()
+                        retorno_total = (serie.iloc[-1] / serie.iloc[0]) - 1
+                        retorno_medio_ano = retornos_diarios.mean() * 252
+                        volatilidade_ano = retornos_diarios.std() * np.sqrt(252)
+                        sharpe = retorno_medio_ano / volatilidade_ano if volatilidade_ano != 0 else np.nan
 
-            valor_total = 0.0
-            valor_investido = 0.0
-            resultado = []
+                        metrics[t] = {
+                            "Retorno Total (%)": f"{retorno_total:.2%}",
+                            "Retorno Médio Anualizado (%)": f"{retorno_medio_ano:.2%}",
+                            "Volatilidade Anualizada (%)": f"{volatilidade_ano:.2%}",
+                            "Índice Sharpe": f"{sharpe:.2f}" if not np.isnan(sharpe) else "N/A",
+                        }
+                    else:
+                        metrics[t] = {
+                            "Retorno Total (%)": "N/A",
+                            "Retorno Médio Anualizado (%)": "N/A",
+                            "Volatilidade Anualizada (%)": "N/A",
+                            "Índice Sharpe": "N/A",
+                        }
+                df_metrics = pd.DataFrame(metrics).T
+                st.table(df_metrics)
 
-            for t in tickers:
-                qtd = carteira[t]["quantidade"]
-                pm = carteira[t]["preco_medio"]
-                serie = df_precos[t].dropna()
-                preco_atual = float(serie.iloc[-1]) if not serie.empty else np.nan
+            with col2:
+                st.subheader("🧮 Simulador de Carteira")
+                st.write("Informe quantidades e preços médios para calcular retorno.")
 
-                valor_posicao = qtd * preco_atual
-                investimento = qtd * pm
-                lucro_prejuizo = valor_posicao - investimento
+                carteira = {}
+                for t in tickers:
+                    qtd = st.number_input(f"Quantidade de {t}:", min_value=0, step=1, key=f"qtd_{t}")
+                    preco_medio = st.number_input(f"Preço médio de compra de {t} (R$):", min_value=0.0, format="%.2f", key=f"pm_{t}")
+                    carteira[t] = {"quantidade": qtd, "preco_medio": preco_medio}
 
-                if isinstance(valor_posicao, (int, float, np.floating)) and not np.isnan(valor_posicao):
-                    valor_total += valor_posicao
-                else:
-                    try:
-                        valor_total += float(valor_posicao)
-                    except:
-                        pass
+                valor_total = 0.0
+                valor_investido = 0.0
+                resultado = []
 
-                if isinstance(investimento, (int, float, np.floating)) and not np.isnan(investimento):
-                    valor_investido += investimento
-                else:
-                    try:
-                        valor_investido += float(investimento)
-                    except:
-                        pass
+                for t in tickers:
+                    qtd = carteira[t]["quantidade"]
+                    pm = carteira[t]["preco_medio"]
+                    serie = df_precos[t].dropna()
+                    preco_atual = float(serie.iloc[-1]) if not serie.empty else np.nan
 
-                resultado.append({
-                    "Ativo": t,
-                    "Quantidade": qtd,
-                    "Preço Médio (R$)": pm,
-                    "Preço Atual (R$)": preco_atual,
-                    "Valor Posição (R$)": valor_posicao,
-                    "Investimento (R$)": investimento,
-                    "Lucro/Prejuízo (R$)": lucro_prejuizo,
-                })
+                    valor_posicao = qtd * preco_atual
+                    investimento = qtd * pm
+                    lucro_prejuizo = valor_posicao - investimento
 
-            df_resultado = pd.DataFrame(resultado)
-            df_resultado["Lucro/Prejuízo (%)"] = (df_resultado["Lucro/Prejuízo (R$)"] / df_resultado["Investimento (R$)"]).fillna(0)
+                    if isinstance(valor_posicao, (int, float, np.floating)) and not np.isnan(valor_posicao):
+                        valor_total += valor_posicao
+                    else:
+                        try:
+                            valor_total += float(valor_posicao)
+                        except:
+                            pass
 
-            st.write(f"**Valor total da carteira:** R$ {valor_total:,.2f}")
-            st.write(f"**Valor total investido:** R$ {valor_investido:,.2f}")
-            st.write(f"**Retorno total da carteira:** {(valor_total / valor_investido - 1) if valor_investido != 0 else 0:.2%}")
+                    if isinstance(investimento, (int, float, np.floating)) and not np.isnan(investimento):
+                        valor_investido += investimento
+                    else:
+                        try:
+                            valor_investido += float(investimento)
+                        except:
+                            pass
 
-            st.dataframe(df_resultado.style.format({
-                "Preço Médio (R$)": "R$ {:,.2f}",
-                "Preço Atual (R$)": "R$ {:,.2f}",
-                "Valor Posição (R$)": "R$ {:,.2f}",
-                "Investimento (R$)": "R$ {:,.2f}",
-                "Lucro/Prejuízo (R$)": "R$ {:,.2f}",
-                "Lucro/Prejuízo (%)": "{:.2%}",
-            }))
+                    resultado.append({
+                        "Ativo": t,
+                        "Quantidade": qtd,
+                        "Preço Médio (R$)": pm,
+                        "Preço Atual (R$)": preco_atual,
+                        "Valor Posição (R$)": valor_posicao,
+                        "Investimento (R$)": investimento,
+                        "Lucro/Prejuízo (R$)": lucro_prejuizo,
+                    })
+
+                df_resultado = pd.DataFrame(resultado)
+                df_resultado["Lucro/Prejuízo (%)"] = (df_resultado["Lucro/Prejuízo (R$)"] / df_resultado["Investimento (R$)"]).fillna(0)
+
+                st.write(f"**Valor total da carteira:** R$ {valor_total:,.2f}")
+                st.write(f"**Valor total investido:** R$ {valor_investido:,.2f}")
+                st.write(f"**Retorno total da carteira:** {(valor_total / valor_investido - 1) if valor_investido != 0 else 0:.2%}")
+
+                st.dataframe(df_resultado.style.format({
+                    "Preço Médio (R$)": "R$ {:,.2f}",
+                    "Preço Atual (R$)": "R$ {:,.2f}",
+                    "Valor Posição (R$)": "R$ {:,.2f}",
+                    "Investimento (R$)": "R$ {:,.2f}",
+                    "Lucro/Prejuízo (R$)": "R$ {:,.2f}",
+                    "Lucro/Prejuízo (%)": "{:.2%}",
+                }))
+
+        elif aba == "Previsão com ARIMA":
+            st.subheader("📅 Previsão com ARIMA para um ativo selecionado")
+
+            ativo_selecionado = st.selectbox("Escolha o ativo para previsão:", df_precos.columns)
+
+            serie_previsao = df_precos[ativo_selecionado].dropna()
+
+            if len(serie_previsao) < 30:
+                st.warning("Dados insuficientes para realizar previsão confiável (menos de 30 pontos).")
+            else:
+                # Treinar modelo ARIMA (parâmetros simples para exemplo)
+                try:
+                    model = ARIMA(serie_previsao, order=(2, 1, 2))
+                    model_fit = model.fit()
+                    previsao = model_fit.get_forecast(steps=10)
+                    previsao_df = previsao.summary_frame()
+
+                    # Preparar gráfico com histórico + previsão
+                    fig = go.Figure()
+
+                    fig.add_trace(go.Scatter(
+                        x=serie_previsao.index,
+                        y=serie_previsao.values,
+                        mode='lines',
+                        name='Histórico'
+                    ))
+
+                    fig.add_trace(go.Scatter(
+                        x=previsao_df.index,
+                        y=previsao_df['mean'],
+                        mode='lines',
+                        name='Previsão'
+                    ))
+
+                    fig.add_trace(go.Scatter(
+                        x=previsao_df.index,
+                        y=previsao_df['mean_ci_lower'],
+                        mode='lines',
+                        name='Limite Inferior (95%)',
+                        line=dict(dash='dash'),
+                        showlegend=False
+                    ))
+
+                    fig.add_trace(go.Scatter(
+                        x=previsao_df.index,
+                        y=previsao_df['mean_ci_upper'],
+                        mode='lines',
+                        name='Limite Superior (95%)',
+                        line=dict(dash='dash'),
+                        fill='tonexty',
+                        fillcolor='rgba(0,100,80,0.2)',
+                        showlegend=False
+                    ))
+
+                    fig.update_layout(
+                        xaxis_title="Data",
+                        yaxis_title="Preço Ajustado (R$)",
+                        template="plotly_white",
+                        hovermode="x unified",
+                        legend_title_text="Ativo",
+                        height=500,
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Erro ao calcular previsão ARIMA: {e}")
+
