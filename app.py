@@ -35,7 +35,7 @@ if ativos_str:
         try:
             dados = yf.download(t, period=periodo[1], progress=False)
             if not dados.empty:
-                precos[t] = dados["Close"]
+                precos[t] = dados["Adj Close"]
                 st.write(f"✅ Dados de {t} carregados com sucesso.")
             else:
                 st.warning(f"⚠️ Ticker '{t}' não retornou dados.")
@@ -47,9 +47,8 @@ if ativos_str:
         df_precos.columns = df_precos.columns.droplevel(0)
 
         # Converter ativos internacionais para BRL
-        # Baixa taxa USD-BRL para o período completo, sem progress bar
         try:
-            usd_brl = yf.download("USDBRL=X", period=periodo[1], progress=False)["Close"]
+            usd_brl = yf.download("USDBRL=X", period=periodo[1], progress=False)["Adj Close"]
             if usd_brl.empty:
                 usd_brl = None
                 st.warning("Não foi possível carregar a taxa de câmbio USDBRL.")
@@ -60,8 +59,8 @@ if ativos_str:
         if usd_brl is not None:
             for t in df_precos.columns:
                 if not t.endswith(".SA"):  # Considera como ativo internacional
-                    # Alinha índices antes de multiplicar
-                    aligned = df_precos[t].to_frame().join(usd_brl.rename("usd_brl"), how="left")
+                    # Corrigido: converte usd_brl para DataFrame com coluna nomeada
+                    aligned = df_precos[t].to_frame().join(usd_brl.to_frame(name="usd_brl"), how="left")
                     aligned["usd_brl"].fillna(method="ffill", inplace=True)
                     aligned["usd_brl"].fillna(method="bfill", inplace=True)
                     df_precos[t] = aligned[t] * aligned["usd_brl"]
@@ -191,3 +190,4 @@ if ativos_str:
                 "Lucro/Prejuízo (R$)": "R$ {:,.2f}",
                 "Lucro/Prejuízo (%)": "{:.2%}",
             }))
+
