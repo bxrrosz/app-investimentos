@@ -3,13 +3,9 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from statsmodels.tsa.arima.model import ARIMA
-from datetime import timedelta
 
 st.set_page_config(page_title="App Investimentos", page_icon="💰", layout="wide")
 st.markdown("# 💰 Analisador Simples de Investimentos")
-
-# --- Entrada de dados ---
 
 periodo = st.selectbox(
     "Selecione o período de análise:",
@@ -27,8 +23,7 @@ periodo = st.selectbox(
 
 ativos_str = st.text_input(
     "Digite os tickers da bolsa separados por vírgula",
-    value="PETR4.SA, ITUB3.SA, AAPL, MSFT",  # Exemplo fixo
-    help="Exemplo: PETR4.SA, ITUB3.SA, AAPL, MSFT"
+    placeholder="Ex: PETR4.SA, ITUB3.SA, AAPL, MSFT"
 )
 
 if ativos_str:
@@ -49,12 +44,10 @@ if ativos_str:
 
     if precos:
         df_precos = pd.concat(precos, axis=1)
+        df_precos.columns = df_precos.columns.droplevel(0)
 
-        # Remover multiindex colunas se houver
-        if isinstance(df_precos.columns, pd.MultiIndex):
-            df_precos.columns = df_precos.columns.droplevel(0)
-
-        # --- Taxa USD-BRL ---
+        # Converter ativos internacionais para BRL
+        # Baixa taxa USD-BRL para o período completo, sem progress bar
         try:
             usd_brl = yf.download("USDBRL=X", period=periodo[1], progress=False)["Close"]
             if usd_brl.empty:
@@ -65,71 +58,38 @@ if ativos_str:
             st.warning(f"Erro ao carregar taxa de câmbio USDBRL: {e}")
 
         if usd_brl is not None:
-            # Ativos internacionais
-            ativos_intl = [t for t in df_precos.columns if not t.endswith(".SA")]
-
-            # Alinha índice da taxa com o df_precos, preenche valores faltantes
-            usd_brl_alinhado = usd_brl.reindex(df_precos.index).fillna(method="ffill").fillna(method="bfill")
-
-            for t in ativos_intl:
-                serie = df_precos[t].reindex(df_precos.index)
-                # Multiplica usando numpy array para evitar problemas de alinhamento
-                df_precos[t] = (serie.values * usd_brl_alinhado.values)
-
+            for t in df_precos.columns:
+                if not t.endswith(".SA"):  # Considera como ativo internacional
+                    # Alinha índices antes de multiplicar
+                    aligned = df_precos[t].to_frame().join(usd_brl.rename("usd_brl"), how="left")
+                    aligned["usd_brl"].fillna(method="ffill", inplace=True)
+                    aligned["usd_brl"].fillna(method="bfill", inplace=True)
+                    df_precos[t] = aligned[t] * aligned["usd_brl"]
             st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
 
-        # --- Preencher dados faltantes (interpolação) para evitar buracos no gráfico ---
-        df_precos_interp = df_precos.interpolate(method='linear').fillna(method='bfill').fillna(method='ffill')
-
-        # --- Gráfico Interativo ---
+        # Gráfico interativo com Plotly
         st.subheader(f"📈 Gráfico Interativo de Preços Ajustados ({periodo[0]})")
 
         fig = go.Figure()
-
-        for t in df_precos_interp.columns:
+        for t in df_precos.columns:
             fig.add_trace(go.Scatter(
-                x=df_precos_interp.index,
-                y=df_precos_interp[t],
+                x=df_precos.index,
+                y=df_precos[t],
                 mode='lines',
                 name=t
             ))
 
-        # --- Previsão usando ARIMA simples (1,1,1) para cada ativo, 30 dias úteis ---
-        dias_fwd = 30
-        last_date = df_precos_interp.index[-1]
-        forecast_dates = pd.date_range(start=last_date + timedelta(days=1), periods=dias_fwd, freq='B')
-
-        for t in df_precos_interp.columns:
-            serie = df_precos_interp[t].dropna()
-
-            # Tentativa para rodar ARIMA e gerar forecast
-            try:
-                model = ARIMA(serie, order=(1,1,1))
-                model_fit = model.fit()
-                forecast = model_fit.forecast(steps=dias_fwd)
-
-                fig.add_trace(go.Scatter(
-                    x=forecast_dates,
-                    y=forecast,
-                    mode='lines',
-                    line=dict(dash='dash'),
-                    name=f"{t} Previsão ARIMA"
-                ))
-            except Exception as e:
-                # Se ARIMA falhar, apenas não exibe previsão
-                pass
-
         fig.update_layout(
             xaxis_title="Data",
-            yaxis_title="Preço Ajustado (R$)",
+            yaxis_title="Preço Ajustado ($)",
             template="plotly_white",
             hovermode="x unified",
             legend_title_text="Ativos",
-            height=600,
+            height=500,
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # --- Métricas e Simulador de Carteira ---
+        # Layout em colunas para métricas e simulador
         col1, col2 = st.columns([2, 1])
 
         with col1:
@@ -192,32 +152,42 @@ if ativos_str:
 
                 if isinstance(valor_posicao, (int, float, np.floating)) and not np.isnan(valor_posicao):
                     valor_total += valor_posicao
+                else:
+                    try:
+                        valor_total += float(valor_posicao)
+                    except:
+                        pass
 
                 if isinstance(investimento, (int, float, np.floating)) and not np.isnan(investimento):
                     valor_investido += investimento
+                else:
+                    try:
+                        valor_investido += float(investimento)
+                    except:
+                        pass
 
                 resultado.append({
                     "Ativo": t,
                     "Quantidade": qtd,
-                    "Preço Médio (R$)": pm,
-                    "Preço Atual (R$)": preco_atual,
-                    "Valor Posição (R$)": valor_posicao,
-                    "Investimento (R$)": investimento,
-                    "Lucro/Prejuízo (R$)": lucro_prejuizo,
+                    "Preço Médio ($)": pm,
+                    "Preço Atual ($)": preco_atual,
+                    "Valor Posição ($)": valor_posicao,
+                    "Investimento ($)": investimento,
+                    "Lucro/Prejuízo ($)": lucro_prejuizo,
                 })
 
             df_resultado = pd.DataFrame(resultado)
-            df_resultado["Lucro/Prejuízo (%)"] = (df_resultado["Lucro/Prejuízo (R$)"] / df_resultado["Investimento (R$)"]).fillna(0)
+            df_resultado["Lucro/Prejuízo (%)"] = (df_resultado["Lucro/Prejuízo ($)"] / df_resultado["Investimento ($)"]).fillna(0)
 
-            st.write(f"**Valor total da carteira:** R$ {valor_total:,.2f}")
-            st.write(f"**Valor total investido:** R$ {valor_investido:,.2f}")
+            st.write(f"**Valor total da carteira:** {valor_total:,.2f}")
+            st.write(f"**Valor total investido:** {valor_investido:,.2f}")
             st.write(f"**Retorno total da carteira:** {(valor_total / valor_investido - 1) if valor_investido != 0 else 0:.2%}")
 
             st.dataframe(df_resultado.style.format({
-                "Preço Médio (R$)": "R$ {:,.2f}",
-                "Preço Atual (R$)": "R$ {:,.2f}",
-                "Valor Posição (R$)": "R$ {:,.2f}",
-                "Investimento (R$)": "R$ {:,.2f}",
-                "Lucro/Prejuízo (R$)": "R$ {:,.2f}",
+                "Preço Médio": "$ {:,.2f}",
+                "Preço Atual": "$ {:,.2f}",
+                "Valor Posição": "$ {:,.2f}",
+                "Investimento": "$ {:,.2f}",
+                "Lucro/Prejuízo": "$ {:,.2f}",
                 "Lucro/Prejuízo (%)": "{:.2%}",
             }))
