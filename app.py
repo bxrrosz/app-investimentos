@@ -7,7 +7,6 @@ import plotly.graph_objects as go
 st.set_page_config(page_title="App Investimentos", page_icon="💰", layout="wide")
 st.markdown("# 💰 Analisador Simples de Investimentos")
 
-# Seleção do período de análise
 periodo = st.selectbox(
     "Selecione o período de análise:",
     options=[
@@ -22,21 +21,11 @@ periodo = st.selectbox(
     format_func=lambda x: x[0]
 )
 
-# Input dos tickers
 ativos_str = st.text_input(
     "Digite os tickers da bolsa separados por vírgula",
-    placeholder="Ex: PETR4.SA, ITUB3.SA, B3SA3.SA"
+    placeholder="Ex: PETR4.SA, ITUB3.SA, AAPL, MSFT"
 )
 
-# Função para obter taxa de câmbio USD-BRL diária (fechamento) para conversão
-@st.cache_data(ttl=3600)
-def get_usd_brl_rates(period):
-    dados = yf.download("USDBRL=X", period=period, progress=False)
-    if dados.empty:
-        return None
-    return dados["Close"]
-
-usd_brl_rates = None
 if ativos_str:
     tickers = [t.strip().upper() for t in ativos_str.split(",") if t.strip()]
     st.write(f"Analisando: **{', '.join(tickers)}** no período de {periodo[0]}")
@@ -57,41 +46,48 @@ if ativos_str:
         df_precos = pd.concat(precos, axis=1)
         df_precos.columns = df_precos.columns.droplevel(0)
 
-        # Obter taxa USD-BRL para conversão dos ativos não BRL
-        usd_brl_rates = get_usd_brl_rates(periodo[1])
-        if usd_brl_rates is None or usd_brl_rates.empty:
-            st.warning("Não foi possível obter taxa USD-BRL para conversão.")
+        # Converter ativos internacionais para BRL
+        # Baixa taxa USD-BRL para o período completo, sem progress bar
+        try:
+            usd_brl = yf.download("USDBRL=X", period=periodo[1], progress=False)["Close"]
+            if usd_brl.empty:
+                usd_brl = None
+                st.warning("Não foi possível carregar a taxa de câmbio USDBRL.")
+        except Exception as e:
+            usd_brl = None
+            st.warning(f"Erro ao carregar taxa de câmbio USDBRL: {e}")
 
-        # Converter preços em USD para BRL quando aplicável
+        if usd_brl is not None:
+            for t in df_precos.columns:
+                if not t.endswith(".SA"):  # Considera como ativo internacional
+                    # Alinha índices antes de multiplicar
+                    aligned = df_precos[t].to_frame().join(usd_brl.rename("usd_brl"), how="left")
+                    aligned["usd_brl"].fillna(method="ffill", inplace=True)
+                    aligned["usd_brl"].fillna(method="bfill", inplace=True)
+                    df_precos[t] = aligned[t] * aligned["usd_brl"]
+            st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
+
+        # Gráfico interativo com Plotly
+        st.subheader(f"📈 Gráfico Interativo de Preços Ajustados ({periodo[0]})")
+
+        fig = go.Figure()
         for t in df_precos.columns:
-            if not t.endswith(".SA"):  # assumindo que ativos BR têm .SA
-                if usd_brl_rates is not None:
-                    # Alinhar índices para multiplicação
-                    df_precos[t] = df_precos[t].reindex(usd_brl_rates.index).fillna(method="ffill")
-                    df_precos[t] = df_precos[t] * usd_brl_rates
-                else:
-                    st.warning(f"Não foi possível converter {t} para BRL, dados de câmbio faltando.")
-
-        # Gráfico interativo com Plotly (com linhas contínuas)
-        st.subheader(f"📈 Preços ajustados – {periodo[0]}")
-        fig_p = go.Figure()
-        for tk in df_precos.columns:
-            serie_plot = df_precos[tk].copy()
-            fig_p.add_trace(go.Scatter(
-                x=serie_plot.index,
-                y=serie_plot.values,
-                mode="lines",
-                name=tk,
-                connectgaps=True  # evita quebras visuais quando há fins de semana/NaNs
+            fig.add_trace(go.Scatter(
+                x=df_precos.index,
+                y=df_precos[t],
+                mode='lines',
+                name=t
             ))
-        fig_p.update_layout(
+
+        fig.update_layout(
+            xaxis_title="Data",
+            yaxis_title="Preço Ajustado (R$)",
             template="plotly_white",
             hovermode="x unified",
-            height=450,
-            xaxis_title="Data",
-            yaxis_title="Preço (BRL)"
+            legend_title_text="Ativos",
+            height=500,
         )
-        st.plotly_chart(fig_p, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)
 
         # Layout em colunas para métricas e simulador
         col1, col2 = st.columns([2, 1])
@@ -135,82 +131,63 @@ if ativos_str:
             st.write("Informe quantidades e preços médios para calcular retorno.")
 
             carteira = {}
-            rows = []
-            v_tot = 0.0
-            inv_tot = 0.0
+            for t in tickers:
+                qtd = st.number_input(f"Quantidade de {t}:", min_value=0, step=1, key=f"qtd_{t}")
+                preco_medio = st.number_input(f"Preço médio de compra de {t} (R$):", min_value=0.0, format="%.2f", key=f"pm_{t}")
+                carteira[t] = {"quantidade": qtd, "preco_medio": preco_medio}
 
-            for tk in tickers:
-                qtd = st.number_input(f"Qtd {tk}", 0, step=1, key=f"q_{tk}")
-                pm = st.number_input(f"PM {tk} (R$)", 0.0, format="%.2f", key=f"pm_{tk}")
+            valor_total = 0.0
+            valor_investido = 0.0
+            resultado = []
 
-                # preço atual só se o ticker realmente está em precos_df
-                if tk in df_precos.columns:
-                    serie_price = df_precos[tk].dropna()
-                    price = float(serie_price.iloc[-1]) if not serie_price.empty else np.nan
+            for t in tickers:
+                qtd = carteira[t]["quantidade"]
+                pm = carteira[t]["preco_medio"]
+                serie = df_precos[t].dropna()
+                preco_atual = float(serie.iloc[-1]) if not serie.empty else np.nan
+
+                valor_posicao = qtd * preco_atual
+                investimento = qtd * pm
+                lucro_prejuizo = valor_posicao - investimento
+
+                if isinstance(valor_posicao, (int, float, np.floating)) and not np.isnan(valor_posicao):
+                    valor_total += valor_posicao
                 else:
-                    st.warning(f"{tk}: dados não carregados – verifique ticker.")
-                    price = np.nan
+                    try:
+                        valor_total += float(valor_posicao)
+                    except:
+                        pass
 
-                val = qtd * price if np.isfinite(price) else 0
-                inv = qtd * pm
-                v_tot += val
-                inv_tot += inv
-                rows.append({"Ativo": tk, "Qtd": qtd, "Preço": price, "Valor": val, "Invest": inv, "Res": val - inv})
+                if isinstance(investimento, (int, float, np.floating)) and not np.isnan(investimento):
+                    valor_investido += investimento
+                else:
+                    try:
+                        valor_investido += float(investimento)
+                    except:
+                        pass
 
-            df_c = pd.DataFrame(rows)
-            if not df_c.empty:
-                df_c["Res %"] = np.where(df_c["Invest"] != 0, df_c["Res"] / df_c["Invest"], 0)
-            else:
-                df_c["Res %"] = []
+                resultado.append({
+                    "Ativo": t,
+                    "Quantidade": qtd,
+                    "Preço Médio (R$)": pm,
+                    "Preço Atual (R$)": preco_atual,
+                    "Valor Posição (R$)": valor_posicao,
+                    "Investimento (R$)": investimento,
+                    "Lucro/Prejuízo (R$)": lucro_prejuizo,
+                })
 
-            st.write(f"**Valor total da carteira:** R$ {v_tot:,.2f}")
-            st.write(f"**Valor total investido:** R$ {inv_tot:,.2f}")
-            st.write(f"**Retorno total da carteira:** {(v_tot / inv_tot - 1) if inv_tot != 0 else 0:.2%}")
+            df_resultado = pd.DataFrame(resultado)
+            df_resultado["Lucro/Prejuízo (%)"] = (df_resultado["Lucro/Prejuízo (R$)"] / df_resultado["Investimento (R$)"]).fillna(0)
 
-            st.dataframe(df_c.style.format({
-                "Preço": "R$ {:,.2f}",
-                "Valor": "R$ {:,.2f}",
-                "Invest": "R$ {:,.2f}",
-                "Res": "R$ {:,.2f}",
-                "Res %": "{:.2%}",
+            st.write(f"**Valor total da carteira:** R$ {valor_total:,.2f}")
+            st.write(f"**Valor total investido:** R$ {valor_investido:,.2f}")
+            st.write(f"**Retorno total da carteira:** {(valor_total / valor_investido - 1) if valor_investido != 0 else 0:.2%}")
+
+            st.dataframe(df_resultado.style.format({
+                "Preço Médio (R$)": "R$ {:,.2f}",
+                "Preço Atual (R$)": "R$ {:,.2f}",
+                "Valor Posição (R$)": "R$ {:,.2f}",
+                "Investimento (R$)": "R$ {:,.2f}",
+                "Lucro/Prejuízo (R$)": "R$ {:,.2f}",
+                "Lucro/Prejuízo (%)": "{:.2%}",
             }))
-
-        # --- Projeção simples (exemplo básico de previsão linear) ---
-        st.subheader("🔮 Projeção Simples de Preço Futuro (próximos 30 dias)")
-        dias_fwd = 30
-
-        fig_fc = go.Figure()
-        for t in df_precos.columns:
-            serie = df_precos[t].dropna()
-            if len(serie) > 10:
-                y = serie.values
-                x = np.arange(len(y))
-                coef = np.polyfit(x, y, 1)  # regressão linear simples
-                proj_x = np.arange(len(y), len(y) + dias_fwd)
-                proj_y = coef[0] * proj_x + coef[1]
-
-                q10 = np.percentile(proj_y, 10)
-                q90 = np.percentile(proj_y, 90)
-                q50 = np.percentile(proj_y, 50)
-
-                x_proj = list(range(1, dias_fwd + 1))
-                q10_list = [q10] * dias_fwd
-                q90_list = [q90] * dias_fwd
-                q50_list = [q50] * dias_fwd
-
-                # faixa inferior
-                fig_fc.add_trace(go.Scatter(x=x_proj, y=q10_list, line=dict(width=0), name="10% baixa",
-                                            mode="lines", hoverinfo="skip", showlegend=False))
-                # faixa superior + preenchimento
-                fig_fc.add_trace(go.Scatter(x=x_proj, y=q90_list, fill="tonexty", fillcolor="rgba(65,105,225,0.2)",
-                                            line=dict(width=0), name="10% alta", hoverinfo="skip", showlegend=False))
-                # mediana
-                fig_fc.add_trace(go.Scatter(x=x_proj, y=q50_list, line=dict(color="royalblue"), name="Mediana"))
-
-        fig_fc.update_layout(template="plotly_white", height=250,
-                             margin=dict(l=0, r=0, t=30, b=0),
-                             xaxis_title="Dias", yaxis_title="Preço proj. (BRL)")
-        st.plotly_chart(fig_fc, use_container_width=True)
-
-
-
