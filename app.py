@@ -46,28 +46,30 @@ if ativos_str:
         df_precos = pd.concat(precos, axis=1)
         df_precos.columns = df_precos.columns.droplevel(0)
 
-        # Baixa taxa USD-BRL para o período completo, sem progress bar
-        usd_brl = None
+        # Baixa taxa USD-BRL para o período, sem progress bar
         try:
-            usd_brl_df = yf.download("USDBRL=X", period=periodo[1], progress=False)
-            if not usd_brl_df.empty:
-                usd_brl = usd_brl_df["Close"]
-            else:
-                st.warning("⚠️ Taxa de câmbio USDBRL não retornou dados.")
+            usd_brl = yf.download("USDBRL=X", period=periodo[1], progress=False)["Close"]
+            if usd_brl.empty:
+                usd_brl = None
+                st.warning("Não foi possível carregar a taxa de câmbio USDBRL.")
         except Exception as e:
-            st.warning(f"⚠️ Erro ao carregar taxa de câmbio USDBRL: {e}")
+            usd_brl = None
+            st.warning(f"Erro ao carregar taxa de câmbio USDBRL: {e}")
 
-        # Converte ativos internacionais para BRL, se a taxa USD-BRL estiver disponível
+        # Converter ativos internacionais para BRL
         if usd_brl is not None and isinstance(usd_brl, pd.Series):
+            # Preencher NaNs na taxa para evitar gaps
+            usd_brl_filled = usd_brl.fillna(method="ffill").fillna(method="bfill")
+
             for t in df_precos.columns:
-                if not t.endswith(".SA"):  # Considera ativo internacional
+                if not t.endswith(".SA"):  # Considera como ativo internacional
                     serie_t = df_precos[t].dropna()
                     if serie_t.empty:
                         continue
-                    aligned = serie_t.to_frame().join(usd_brl.to_frame(name="usd_brl"), how="left")
-                    aligned["usd_brl"].fillna(method="ffill", inplace=True)
-                    aligned["usd_brl"].fillna(method="bfill", inplace=True)
-                    df_precos.loc[aligned.index, t] = aligned[t] * aligned["usd_brl"]
+                    # Reindexa a taxa para o índice do ativo para garantir alinhamento completo
+                    taxa_alinhada = usd_brl_filled.reindex(serie_t.index, method="ffill").fillna(method="bfill")
+                    # Multiplica os preços pela taxa já alinhada
+                    df_precos.loc[serie_t.index, t] = serie_t * taxa_alinhada
             st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
         else:
             st.info("Taxa de câmbio USD-BRL não disponível, ativos internacionais permanecem na moeda original.")
@@ -81,7 +83,8 @@ if ativos_str:
                 x=df_precos.index,
                 y=df_precos[t],
                 mode='lines',
-                name=t
+                name=t,
+                connectgaps=True  # conecta os pontos ignorando NaNs
             ))
 
         fig.update_layout(
