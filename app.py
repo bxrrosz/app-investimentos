@@ -46,7 +46,7 @@ if ativos_str:
         df_precos = pd.concat(precos, axis=1)
         df_precos.columns = df_precos.columns.droplevel(0)
 
-        # Converter ativos internacionais para BRL
+        # Baixa taxa USD-BRL e converte ativos internacionais
         try:
             usd_brl = yf.download("USDBRL=X", period=periodo[1], progress=False)["Close"]
             if usd_brl.empty:
@@ -57,13 +57,19 @@ if ativos_str:
             st.warning(f"Erro ao carregar taxa de câmbio USDBRL: {e}")
 
         if usd_brl is not None:
+            # Garante que usd_brl seja Series
+            if isinstance(usd_brl, pd.DataFrame):
+                usd_brl_series = usd_brl.iloc[:, 0]
+            else:
+                usd_brl_series = usd_brl
+
             for t in df_precos.columns:
-                if not t.endswith(".SA"):  # Considera como ativo internacional
-                    # Corrigido: converte usd_brl para DataFrame com coluna nomeada
-                    aligned = df_precos[t].to_frame().join(usd_brl.to_frame(name="usd_brl"), how="left")
+                if not t.endswith(".SA"):  # ativo internacional
+                    aligned = df_precos[t].to_frame().join(usd_brl_series.rename("usd_brl"), how="left")
                     aligned["usd_brl"].fillna(method="ffill", inplace=True)
                     aligned["usd_brl"].fillna(method="bfill", inplace=True)
                     df_precos[t] = aligned[t] * aligned["usd_brl"]
+
             st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
 
         # Gráfico interativo com Plotly
@@ -190,4 +196,3 @@ if ativos_str:
                 "Lucro/Prejuízo (R$)": "R$ {:,.2f}",
                 "Lucro/Prejuízo (%)": "{:.2%}",
             }))
-
