@@ -3,11 +3,13 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+from datetime import timedelta
 
 st.set_page_config(page_title="App Investimentos", page_icon="💰", layout="wide")
 st.markdown("# 💰 Analisador Simples de Investimentos")
 
-# Períodos para seleção
+# --- Entrada de dados ---
+
 periodo = st.selectbox(
     "Selecione o período de análise:",
     options=[
@@ -22,10 +24,9 @@ periodo = st.selectbox(
     format_func=lambda x: x[0]
 )
 
-# Barra de pesquisa com exemplo fixo
 ativos_str = st.text_input(
     "Digite os tickers da bolsa separados por vírgula",
-    value="PETR4.SA, ITUB3.SA, AAPL, MSFT",  # exemplo fixo para ajudar
+    value="PETR4.SA, ITUB3.SA, AAPL, MSFT",  # Exemplo fixo
     help="Exemplo: PETR4.SA, ITUB3.SA, AAPL, MSFT"
 )
 
@@ -47,11 +48,12 @@ if ativos_str:
 
     if precos:
         df_precos = pd.concat(precos, axis=1)
-        # Drop nível extra se existir
+
+        # Dropar nível extra se MultiIndex
         if isinstance(df_precos.columns, pd.MultiIndex):
             df_precos.columns = df_precos.columns.droplevel(0)
 
-        # Baixa taxa USD-BRL para o período completo
+        # --- Taxa USD-BRL ---
         try:
             usd_brl = yf.download("USDBRL=X", period=periodo[1], progress=False)["Close"]
             if usd_brl.empty:
@@ -61,33 +63,86 @@ if ativos_str:
             usd_brl = None
             st.warning(f"Erro ao carregar taxa de câmbio USDBRL: {e}")
 
-        # Converter preços de ativos internacionais para BRL
         if usd_brl is not None:
-            # Identifica ativos internacionais (não terminam com .SA)
+            # Identifica ativos internacionais (que não terminam com .SA)
             ativos_internacionais = [t for t in df_precos.columns if not t.endswith(".SA")]
 
-            # Alinha índice da taxa USD-BRL ao DataFrame de preços
+            # Alinha o índice da taxa de câmbio com df_precos, preenchendo valores faltantes
             usd_brl_alinhado = usd_brl.reindex(df_precos.index).fillna(method="ffill").fillna(method="bfill")
 
             for t in ativos_internacionais:
-                serie_ativo = df_precos[t]
-                serie_ativo_alinhada = serie_ativo.reindex(df_precos.index)
-                multiplicado = (serie_ativo_alinhada * usd_brl_alinhado).reindex(df_precos.index)
-                # Usa .values para evitar conflito de índice e tamanho
-                df_precos[t] = multiplicado.values
+                serie_ativo = df_precos[t].reindex(df_precos.index)
+                multiplicado = serie_ativo * usd_brl_alinhado
+                df_precos[t] = multiplicado.values  # .values para evitar problemas de alinhamento
 
             st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
 
-        # Gráfico interativo com Plotly
+        # --- Resolver problema de intervalos no gráfico ---
+
+        # Preenche dados faltantes via interpolação linear para evitar 'buracos' no gráfico
+        df_precos_interp = df_precos.interpolate(method='linear').fillna(method='bfill').fillna(method='ffill')
+
+        # --- Gráfico Interativo ---
         st.subheader(f"📈 Gráfico Interativo de Preços Ajustados ({periodo[0]})")
 
         fig = go.Figure()
-        for t in df_precos.columns:
+
+        # Traçar preços históricos
+        for t in df_precos_interp.columns:
             fig.add_trace(go.Scatter(
-                x=df_precos.index,
-                y=df_precos[t],
+                x=df_precos_interp.index,
+                y=df_precos_interp[t],
                 mode='lines',
                 name=t
+            ))
+
+        # --- Previsão simples para 30 dias à frente (usando média e std de retornos) ---
+
+        dias_fwd = 30
+        last_date = df_precos_interp.index[-1]
+        forecast_dates = pd.date_range(start=last_date + timedelta(days=1), periods=dias_fwd, freq='B')
+
+        for t in df_precos_interp.columns:
+            serie = df_precos_interp[t]
+            if len(serie) < 2:
+                continue
+            retornos = serie.pct_change().dropna()
+            media_retorno = retornos.mean()
+            std_retorno = retornos.std()
+
+            # Modelo muito simples de forecast: assume retorno médio constante + banda de volatilidade
+            ultimo_preco = serie.iloc[-1]
+            previsao_media = [ultimo_preco * ((1 + media_retorno) ** i) for i in range(1, dias_fwd + 1)]
+            previsao_q90 = [p * (1 + std_retorno) for p in previsao_media]
+            previsao_q10 = [p * (1 - std_retorno) for p in previsao_media]
+
+            fig.add_trace(go.Scatter(
+                x=forecast_dates,
+                y=previsao_media,
+                mode='lines',
+                line=dict(dash='dash'),
+                name=f"{t} Previsão Média"
+            ))
+            fig.add_trace(go.Scatter(
+                x=forecast_dates,
+                y=previsao_q90,
+                mode='lines',
+                line=dict(color='rgba(0,0,0,0)'),
+                showlegend=False,
+                hoverinfo='skip',
+                fill=None,
+                name=f"{t} Banda Superior"
+            ))
+            fig.add_trace(go.Scatter(
+                x=forecast_dates,
+                y=previsao_q10,
+                mode='lines',
+                fill='tonexty',
+                fillcolor='rgba(0,100,80,0.2)',
+                line=dict(color='rgba(0,0,0,0)'),
+                showlegend=False,
+                hoverinfo='skip',
+                name=f"{t} Banda Inferior"
             ))
 
         fig.update_layout(
@@ -96,11 +151,11 @@ if ativos_str:
             template="plotly_white",
             hovermode="x unified",
             legend_title_text="Ativos",
-            height=500,
+            height=600,
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # Layout em colunas para métricas e simulador
+        # --- Métricas e Simulador de Carteira ---
         col1, col2 = st.columns([2, 1])
 
         with col1:
@@ -163,19 +218,9 @@ if ativos_str:
 
                 if isinstance(valor_posicao, (int, float, np.floating)) and not np.isnan(valor_posicao):
                     valor_total += valor_posicao
-                else:
-                    try:
-                        valor_total += float(valor_posicao)
-                    except:
-                        pass
 
                 if isinstance(investimento, (int, float, np.floating)) and not np.isnan(investimento):
                     valor_investido += investimento
-                else:
-                    try:
-                        valor_investido += float(investimento)
-                    except:
-                        pass
 
                 resultado.append({
                     "Ativo": t,
