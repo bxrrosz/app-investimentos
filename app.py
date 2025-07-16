@@ -44,14 +44,13 @@ if ativos_str.strip():
 
     if precos:
         df_precos = pd.concat(precos, axis=1)
-        # Dropar nível extra caso tenha multiindex no columns
         if isinstance(df_precos.columns, pd.MultiIndex):
             df_precos.columns = df_precos.columns.droplevel(0)
 
-        # Remove índices duplicados para evitar conflitos ao atribuir colunas
+        # Remove índices duplicados para evitar erros
         df_precos = df_precos[~df_precos.index.duplicated(keep='first')]
 
-        # Converter ativos internacionais para BRL usando taxa USD-BRL
+        # Baixar taxa USD-BRL e converter ativos internacionais
         try:
             usd_brl = yf.download("USDBRL=X", period=periodo[1], progress=False)["Close"]
             if usd_brl.empty:
@@ -63,12 +62,16 @@ if ativos_str.strip():
 
         if usd_brl is not None:
             ativos_internacionais = [t for t in df_precos.columns if not t.endswith(".SA")]
+
+            # Reindexa a taxa de câmbio para o índice do df_precos para garantir alinhamento
+            usd_brl_alinhado = usd_brl.reindex(df_precos.index).fillna(method="ffill").fillna(method="bfill")
+
             for t in ativos_internacionais:
                 serie_ativo = df_precos[t]
-                taxa_alinhada = usd_brl.reindex(serie_ativo.index).fillna(method="bfill").fillna(method="ffill")
-                multiplicado = serie_ativo * taxa_alinhada
-                multiplicado_reindexado = multiplicado.reindex(df_precos.index)
-                df_precos[t] = multiplicado_reindexado
+                # Reindexa o ativo para o índice do df_precos para evitar erro
+                serie_ativo_alinhada = serie_ativo.reindex(df_precos.index)
+                df_precos[t] = serie_ativo_alinhada * usd_brl_alinhado
+
             st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
 
         # Gráfico interativo com Plotly
