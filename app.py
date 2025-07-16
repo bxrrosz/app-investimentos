@@ -46,7 +46,7 @@ if ativos_str:
         df_precos = pd.concat(precos, axis=1)
         df_precos.columns = df_precos.columns.droplevel(0)
 
-        # Baixa taxa USD-BRL e converte ativos internacionais
+        # Baixa taxa USD-BRL para o período completo, sem progress bar
         try:
             usd_brl = yf.download("USDBRL=X", period=periodo[1], progress=False)["Close"]
             if usd_brl.empty:
@@ -57,15 +57,22 @@ if ativos_str:
             st.warning(f"Erro ao carregar taxa de câmbio USDBRL: {e}")
 
         if usd_brl is not None:
-            # Garante que usd_brl seja Series
+            # Garantir que usd_brl_series é pd.Series
             if isinstance(usd_brl, pd.DataFrame):
                 usd_brl_series = usd_brl.iloc[:, 0]
-            else:
+            elif isinstance(usd_brl, pd.Series):
                 usd_brl_series = usd_brl
+            else:
+                usd_brl_series = pd.Series(usd_brl)
+
+            # Reindexar para índice contínuo de datas úteis
+            idx = pd.date_range(start=df_precos.index.min(), end=df_precos.index.max(), freq='B')
+            df_precos = df_precos.reindex(idx)
+            df_precos = df_precos.fillna(method='ffill').fillna(method='bfill')
 
             for t in df_precos.columns:
                 if not t.endswith(".SA"):  # ativo internacional
-                    aligned = df_precos[t].to_frame().join(usd_brl_series.rename("usd_brl"), how="left")
+                    aligned = df_precos[t].to_frame().join(usd_brl_series.to_frame("usd_brl"), how="left")
                     aligned["usd_brl"].fillna(method="ffill", inplace=True)
                     aligned["usd_brl"].fillna(method="bfill", inplace=True)
                     df_precos[t] = aligned[t] * aligned["usd_brl"]
@@ -196,3 +203,4 @@ if ativos_str:
                 "Lucro/Prejuízo (R$)": "R$ {:,.2f}",
                 "Lucro/Prejuízo (%)": "{:.2%}",
             }))
+
