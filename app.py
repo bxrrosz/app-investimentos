@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 st.set_page_config(page_title="App Investimentos", page_icon="💰", layout="wide")
 st.markdown("# 💰 Analisador Simples de Investimentos")
 
+# Período de análise
 periodo = st.selectbox(
     "Selecione o período de análise:",
     options=[
@@ -21,8 +22,10 @@ periodo = st.selectbox(
     format_func=lambda x: x[0]
 )
 
+# Entrada de ativos com exemplo preenchido
 ativos_str = st.text_input(
     "Digite os tickers da bolsa separados por vírgula",
+    value="PETR4.SA, ITUB3.SA, AAPL, MSFT",
     placeholder="Ex: PETR4.SA, ITUB3.SA, AAPL, MSFT"
 )
 
@@ -44,10 +47,11 @@ if ativos_str:
 
     if precos:
         df_precos = pd.concat(precos, axis=1)
-        df_precos.columns = df_precos.columns.droplevel(0)
+        # Quando concat com dict, fica multiindex col, drop nivel 0
+        if isinstance(df_precos.columns, pd.MultiIndex):
+            df_precos.columns = df_precos.columns.droplevel(0)
 
-        # Converter ativos internacionais para BRL
-        # Baixa taxa USD-BRL para o período completo, sem progress bar
+        # Baixa taxa USD-BRL para o período escolhido
         try:
             usd_brl = yf.download("USDBRL=X", period=periodo[1], progress=False)["Close"]
             if usd_brl.empty:
@@ -57,17 +61,21 @@ if ativos_str:
             usd_brl = None
             st.warning(f"Erro ao carregar taxa de câmbio USDBRL: {e}")
 
+        # Converte os ativos internacionais para BRL
         if usd_brl is not None:
+            # Garantir que usd_brl seja Series
+            usd_brl_series = usd_brl if isinstance(usd_brl, pd.Series) else usd_brl.iloc[:, 0]
             for t in df_precos.columns:
-                if not t.endswith(".SA"):  # Considera como ativo internacional
-                    # Alinha índices antes de multiplicar
-                    aligned = df_precos[t].to_frame().join(usd_brl.rename("usd_brl"), how="left")
+                if not t.endswith(".SA"):  # Assume internacional se não termina com .SA
+                    # Junta pela data para alinhar datas
+                    aligned = df_precos[t].to_frame().join(usd_brl_series.rename("usd_brl"), how="left")
                     aligned["usd_brl"].fillna(method="ffill", inplace=True)
                     aligned["usd_brl"].fillna(method="bfill", inplace=True)
+                    # Multiplica pela taxa para converter em BRL
                     df_precos[t] = aligned[t] * aligned["usd_brl"]
             st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
 
-        # Gráfico interativo com Plotly
+        # Gráfico interativo dos preços ajustados
         st.subheader(f"📈 Gráfico Interativo de Preços Ajustados ({periodo[0]})")
 
         fig = go.Figure()
@@ -81,7 +89,7 @@ if ativos_str:
 
         fig.update_layout(
             xaxis_title="Data",
-            yaxis_title="Preço Ajustado ($)",
+            yaxis_title="Preço Ajustado (R$)",
             template="plotly_white",
             hovermode="x unified",
             legend_title_text="Ativos",
@@ -169,25 +177,25 @@ if ativos_str:
                 resultado.append({
                     "Ativo": t,
                     "Quantidade": qtd,
-                    "Preço Médio ($)": pm,
-                    "Preço Atual ($)": preco_atual,
-                    "Valor Posição ($)": valor_posicao,
-                    "Investimento ($)": investimento,
-                    "Lucro/Prejuízo ($)": lucro_prejuizo,
+                    "Preço Médio (R$)": pm,
+                    "Preço Atual (R$)": preco_atual,
+                    "Valor Posição (R$)": valor_posicao,
+                    "Investimento (R$)": investimento,
+                    "Lucro/Prejuízo (R$)": lucro_prejuizo,
                 })
 
             df_resultado = pd.DataFrame(resultado)
-            df_resultado["Lucro/Prejuízo (%)"] = (df_resultado["Lucro/Prejuízo ($)"] / df_resultado["Investimento ($)"]).fillna(0)
+            df_resultado["Lucro/Prejuízo (%)"] = (df_resultado["Lucro/Prejuízo (R$)"] / df_resultado["Investimento (R$)"]).fillna(0)
 
-            st.write(f"**Valor total da carteira:** {valor_total:,.2f}")
-            st.write(f"**Valor total investido:** {valor_investido:,.2f}")
+            st.write(f"**Valor total da carteira:** R$ {valor_total:,.2f}")
+            st.write(f"**Valor total investido:** R$ {valor_investido:,.2f}")
             st.write(f"**Retorno total da carteira:** {(valor_total / valor_investido - 1) if valor_investido != 0 else 0:.2%}")
 
             st.dataframe(df_resultado.style.format({
-                "Preço Médio": "$ {:,.2f}",
-                "Preço Atual": "$ {:,.2f}",
-                "Valor Posição": "$ {:,.2f}",
-                "Investimento": "$ {:,.2f}",
-                "Lucro/Prejuízo": "$ {:,.2f}",
+                "Preço Médio (R$)": "R$ {:,.2f}",
+                "Preço Atual (R$)": "R$ {:,.2f}",
+                "Valor Posição (R$)": "R$ {:,.2f}",
+                "Investimento (R$)": "R$ {:,.2f}",
+                "Lucro/Prejuízo (R$)": "R$ {:,.2f}",
                 "Lucro/Prejuízo (%)": "{:.2%}",
             }))
