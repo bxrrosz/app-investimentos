@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 st.set_page_config(page_title="App Investimentos", page_icon="💰", layout="wide")
 st.markdown("# 💰 Analisador Simples de Investimentos")
 
+# Períodos para seleção
 periodo = st.selectbox(
     "Selecione o período de análise:",
     options=[
@@ -21,12 +22,14 @@ periodo = st.selectbox(
     format_func=lambda x: x[0]
 )
 
+# Barra de pesquisa com exemplo fixo
 ativos_str = st.text_input(
     "Digite os tickers da bolsa separados por vírgula",
-    placeholder="Ex: PETR4.SA, ITUB3.SA, AAPL, MSFT",
+    value="PETR4.SA, ITUB3.SA, AAPL, MSFT",  # exemplo fixo para ajudar
+    help="Exemplo: PETR4.SA, ITUB3.SA, AAPL, MSFT"
 )
 
-if ativos_str.strip():
+if ativos_str:
     tickers = [t.strip().upper() for t in ativos_str.split(",") if t.strip()]
     st.write(f"Analisando: **{', '.join(tickers)}** no período de {periodo[0]}")
 
@@ -44,13 +47,11 @@ if ativos_str.strip():
 
     if precos:
         df_precos = pd.concat(precos, axis=1)
+        # Drop nível extra se existir
         if isinstance(df_precos.columns, pd.MultiIndex):
             df_precos.columns = df_precos.columns.droplevel(0)
 
-        # Remove índices duplicados para evitar erros
-        df_precos = df_precos[~df_precos.index.duplicated(keep='first')]
-
-        # Baixar taxa USD-BRL e converter ativos internacionais
+        # Baixa taxa USD-BRL para o período completo
         try:
             usd_brl = yf.download("USDBRL=X", period=periodo[1], progress=False)["Close"]
             if usd_brl.empty:
@@ -60,17 +61,20 @@ if ativos_str.strip():
             usd_brl = None
             st.warning(f"Erro ao carregar taxa de câmbio USDBRL: {e}")
 
+        # Converter preços de ativos internacionais para BRL
         if usd_brl is not None:
+            # Identifica ativos internacionais (não terminam com .SA)
             ativos_internacionais = [t for t in df_precos.columns if not t.endswith(".SA")]
 
-            # Reindexa a taxa de câmbio para o índice do df_precos para garantir alinhamento
+            # Alinha índice da taxa USD-BRL ao DataFrame de preços
             usd_brl_alinhado = usd_brl.reindex(df_precos.index).fillna(method="ffill").fillna(method="bfill")
 
             for t in ativos_internacionais:
                 serie_ativo = df_precos[t]
-                # Reindexa o ativo para o índice do df_precos para evitar erro
                 serie_ativo_alinhada = serie_ativo.reindex(df_precos.index)
-                df_precos[t] = serie_ativo_alinhada * usd_brl_alinhado
+                multiplicado = (serie_ativo_alinhada * usd_brl_alinhado).reindex(df_precos.index)
+                # Usa .values para evitar conflito de índice e tamanho
+                df_precos[t] = multiplicado.values
 
             st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
 
@@ -150,15 +154,28 @@ if ativos_str.strip():
             for t in tickers:
                 qtd = carteira[t]["quantidade"]
                 pm = carteira[t]["preco_medio"]
-                serie = df_precos[t].dropna() if t in df_precos.columns else pd.Series(dtype=float)
+                serie = df_precos[t].dropna()
                 preco_atual = float(serie.iloc[-1]) if not serie.empty else np.nan
 
                 valor_posicao = qtd * preco_atual
                 investimento = qtd * pm
                 lucro_prejuizo = valor_posicao - investimento
 
-                valor_total += valor_posicao if pd.notna(valor_posicao) else 0
-                valor_investido += investimento if pd.notna(investimento) else 0
+                if isinstance(valor_posicao, (int, float, np.floating)) and not np.isnan(valor_posicao):
+                    valor_total += valor_posicao
+                else:
+                    try:
+                        valor_total += float(valor_posicao)
+                    except:
+                        pass
+
+                if isinstance(investimento, (int, float, np.floating)) and not np.isnan(investimento):
+                    valor_investido += investimento
+                else:
+                    try:
+                        valor_investido += float(investimento)
+                    except:
+                        pass
 
                 resultado.append({
                     "Ativo": t,
@@ -185,5 +202,4 @@ if ativos_str.strip():
                 "Lucro/Prejuízo (R$)": "R$ {:,.2f}",
                 "Lucro/Prejuízo (%)": "{:.2%}",
             }))
-else:
-    st.info("Por favor, insira um ou mais tickers separados por vírgula para começar a análise.")
+
