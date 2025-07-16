@@ -63,9 +63,22 @@ precos_df = precos_df.loc[:, ~precos_df.columns.duplicated()]
 st.subheader(f"📈 Preços ajustados – {periodo[0]}")
 fig_p = go.Figure()
 for tk in precos_df.columns:
-    fig_p.add_trace(go.Scatter(x=precos_df.index, y=precos_df[tk], mode="lines", name=tk))
-fig_p.update_layout(template="plotly_white", hovermode="x unified", height=450,
-                    xaxis_title="Data", yaxis_title="Preço (BRL)")
+    serie_plot = precos_df[tk].copy()
+    fig_p.add_trace(go.Scatter(
+        x=serie_plot.index,
+        y=serie_plot.values,
+        mode="lines",
+        name=tk,
+        connectgaps=True  # evita quebras visuais quando há fins de semana/NaNs
+    ))
+fig_p.update_layout(
+    template="plotly_white",
+    hovermode="x unified",
+    height=450,
+    xaxis_title="Data",
+    yaxis_title="Preço (BRL)"
+)
+st.subheader(f"📈 Preços ajustados – {periodo[0]}")
 st.plotly_chart(fig_p, use_container_width=True)
 
 # ------------------ 5. Projeção Monte Carlo -----------------
@@ -156,8 +169,6 @@ with col2:
             "Preço": "R$ {:.2f}", "Valor": "R$ {:.2f}", "Invest": "R$ {:.2f}",
             "Res": "R$ {:.2f}", "Res %": "{:.2%}",
         }))
-
-
 
 
 
