@@ -46,36 +46,48 @@ if ativos_str:
         df_precos = pd.concat(precos, axis=1)
         df_precos.columns = df_precos.columns.droplevel(0)
 
-        # Baixa taxa USD-BRL para o período completo, sem progress bar
+        # Reindexa para dias úteis completos no período, evitando gaps
+        idx = pd.date_range(start=df_precos.index.min(), end=df_precos.index.max(), freq='B')
+        df_precos = df_precos.reindex(idx)
+
+        # Preenche valores faltantes (forward fill e back fill)
+        df_precos = df_precos.fillna(method='ffill').fillna(method='bfill')
+
+        # Garante que todas as colunas sejam Series pandas com índice correto
+        for col in df_precos.columns:
+            if not isinstance(df_precos[col], pd.Series):
+                df_precos[col] = pd.Series(df_precos[col], index=df_precos.index)
+
+        # Carrega taxa USD-BRL para conversão dos ativos internacionais
         try:
             usd_brl = yf.download("USDBRL=X", period=periodo[1], progress=False)["Close"]
             if usd_brl.empty:
                 usd_brl = None
                 st.warning("Não foi possível carregar a taxa de câmbio USDBRL.")
+            else:
+                # Reindexa e preenche usd_brl para o mesmo índice do df_precos
+                usd_brl = usd_brl.reindex(df_precos.index).fillna(method='ffill').fillna(method='bfill')
         except Exception as e:
             usd_brl = None
             st.warning(f"Erro ao carregar taxa de câmbio USDBRL: {e}")
 
         if usd_brl is not None:
-            # Garantir que usd_brl_series é pd.Series
-            if isinstance(usd_brl, pd.DataFrame):
-                usd_brl_series = usd_brl.iloc[:, 0]
-            elif isinstance(usd_brl, pd.Series):
-                usd_brl_series = usd_brl
-            else:
-                usd_brl_series = pd.Series(usd_brl)
-
-            # Reindexar para índice contínuo de datas úteis
-            idx = pd.date_range(start=df_precos.index.min(), end=df_precos.index.max(), freq='B')
-            df_precos = df_precos.reindex(idx)
-            df_precos = df_precos.fillna(method='ffill').fillna(method='bfill')
-
             for t in df_precos.columns:
-                if not t.endswith(".SA"):  # ativo internacional
-                    aligned = df_precos[t].to_frame().join(usd_brl_series.to_frame("usd_brl"), how="left")
-                    aligned["usd_brl"].fillna(method="ffill", inplace=True)
-                    aligned["usd_brl"].fillna(method="bfill", inplace=True)
-                    df_precos[t] = aligned[t] * aligned["usd_brl"]
+                if not t.endswith(".SA"):  # Considera ativo internacional
+                    serie_t = df_precos[t]
+                    # Confere se é série antes de continuar
+                    if isinstance(serie_t, pd.Series):
+                        aligned = serie_t.to_frame().join(usd_brl.to_frame(name="usd_brl"), how="left")
+                        aligned["usd_brl"].fillna(method="ffill", inplace=True)
+                        aligned["usd_brl"].fillna(method="bfill", inplace=True)
+                        df_precos[t] = aligned[t] * aligned["usd_brl"]
+                    else:
+                        # Se não for série, tenta converter e aplicar conversão
+                        s = pd.Series(serie_t, index=df_precos.index)
+                        aligned = s.to_frame().join(usd_brl.to_frame(name="usd_brl"), how="left")
+                        aligned["usd_brl"].fillna(method="ffill", inplace=True)
+                        aligned["usd_brl"].fillna(method="bfill", inplace=True)
+                        df_precos[t] = aligned[t] * aligned["usd_brl"]
 
             st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
 
@@ -203,4 +215,3 @@ if ativos_str:
                 "Lucro/Prejuízo (R$)": "R$ {:,.2f}",
                 "Lucro/Prejuízo (%)": "{:.2%}",
             }))
-
