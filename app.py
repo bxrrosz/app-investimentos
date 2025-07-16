@@ -35,7 +35,7 @@ if ativos_str:
         try:
             dados = yf.download(t, period=periodo[1], progress=False)
             if not dados.empty:
-                precos[t] = dados["Adj Close"]
+                precos[t] = dados["Close"]
                 st.write(f"✅ Dados de {t} carregados com sucesso.")
             else:
                 st.warning(f"⚠️ Ticker '{t}' não retornou dados.")
@@ -48,7 +48,7 @@ if ativos_str:
 
         # Converter ativos internacionais para BRL
         try:
-            usd_brl = yf.download("USDBRL=X", period=periodo[1], progress=False)["Adj Close"]
+            usd_brl = yf.download("USDBRL=X", period=periodo[1], progress=False)["Close"]
             if usd_brl.empty:
                 usd_brl = None
                 st.warning("Não foi possível carregar a taxa de câmbio USDBRL.")
