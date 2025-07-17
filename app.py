@@ -145,7 +145,9 @@ if ativos_str:
             col1, col2 = st.columns([2, 1])
 
             with col1:
-                st.subheader("📊 Métricas Financeiras Avançadas")
+                st.subheader("📊 Métricas Financeiras")
+
+                modo_avancado = st.checkbox("Modo Avançado", value=True)
 
                 # Benchmark para cálculo de alpha e beta: usar o primeiro ativo da lista
                 benchmark_name = tickers[0]
@@ -161,7 +163,6 @@ if ativos_str:
                     sharpe = retorno_medio_ano / volatilidade_ano if volatilidade_ano != 0 else np.nan
                     max_drawdown = ((serie / serie.cummax()) - 1).min()
 
-                    # Calcular alpha e beta mesmo para internacionais, usando merge de retornos alinhados
                     if benchmark is not None:
                         benchmark_retornos = benchmark.pct_change()
                         ativo_retornos = serie.pct_change()
@@ -190,18 +191,44 @@ if ativos_str:
 
                 df_metrics = pd.DataFrame(metrics).T
 
-                # Aqui adiciono o tooltip explicativo ANTES da tabela
-                st.markdown("### ℹ️ Explicações das Métricas Financeiras")
-                st.markdown("""
-                - **Retorno Total (%)**: Diferença percentual entre o preço final e inicial.
-                - **Volatilidade Anualizada (%)**: Medida do risco baseada na variação diária anualizada.
-                - **Sharpe**: Retorno adicional por unidade de risco (quanto maior, melhor).
-                - **Max Drawdown**: Maior perda em relação ao pico anterior.
-                - **Alpha**: Excesso de retorno em relação ao benchmark.
-                - **Beta**: Sensibilidade do ativo em relação ao benchmark (risco sistemático).
-                """)
+                # Tooltips para explicação nas colunas (modo avançado)
+                tooltips = {
+                    "Retorno Total (%)": "Diferença percentual entre o preço final e inicial.",
+                    "Volatilidade Anualizada (%)": "Medida do risco baseada na variação diária anualizada.",
+                    "Sharpe": "Retorno adicional por unidade de risco (quanto maior, melhor).",
+                    "Max Drawdown": "Maior perda em relação ao pico anterior.",
+                    "Alpha": "Excesso de retorno em relação ao benchmark.",
+                    "Beta": "Sensibilidade do ativo em relação ao benchmark (risco sistemático)."
+                }
 
-                st.dataframe(df_metrics)
+                if modo_avancado:
+                    # Gerar HTML da tabela com tooltips nas colunas (usando title no <th>)
+                    def generate_tooltip_table(df, tips):
+                        html = '<table border="1" style="border-collapse:collapse; width:100%;">'
+                        # Cabeçalho
+                        html += "<thead><tr><th>Ativo</th>"
+                        for col in df.columns:
+                            tooltip = tips.get(col, "")
+                            html += f'<th title="{tooltip}">{col}</th>'
+                        html += "</tr></thead>"
+
+                        # Corpo
+                        html += "<tbody>"
+                        for idx, row in df.iterrows():
+                            html += f"<tr><td>{idx}</td>"
+                            for col in df.columns:
+                                html += f"<td>{row[col]}</td>"
+                            html += "</tr>"
+                        html += "</tbody></table>"
+                        return html
+
+                    html_table = generate_tooltip_table(df_metrics, tooltips)
+                    st.markdown(html_table, unsafe_allow_html=True)
+
+                else:
+                    # Modo iniciante: tabela simplificada só com Retorno Total (%) e Sharpe
+                    df_simples = df_metrics[["Retorno Total (%)", "Sharpe"]]
+                    st.dataframe(df_simples)
 
             with col2:
                 st.subheader("🧮 Simulador de Carteira")
@@ -340,3 +367,4 @@ if ativos_str:
                     st.plotly_chart(fig, use_container_width=True)
                 except Exception as e:
                     st.error(f"Erro ao calcular previsão ARIMA: {e}")
+
