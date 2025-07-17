@@ -106,7 +106,8 @@ if ativos_str:
         # Converte os ativos internacionais para BRL, exceto os pares cambiais
         if usd_brl is not None and not usd_brl.empty:
             usd_brl_series = usd_brl.reindex(df_precos.index).fillna(method="ffill").fillna(method="bfill")
-            if usd_brl_series is None or usd_brl_series.empty or usd_brl_series.isnull().all():
+            # Corrigido para evitar erro de ambiguidade em bool
+            if (usd_brl_series is None) or (usd_brl_series.empty) or (bool(usd_brl_series.isnull().all())):
                 st.warning("A série da taxa de câmbio está vazia após reindexação.")
             else:
                 for t in df_precos.columns:
@@ -150,6 +151,8 @@ if ativos_str:
                 st.subheader("📊 Métricas Financeiras dos Ativos")
                 metrics = {}
 
+                # Para cálculo Alpha e Beta, pegamos benchmark (se disponível)
+                # Se tiver IBOV, usamos IBOV, senão nenhum
                 benchmark_ticker = "^BVSP"
                 if benchmark_ticker in df_precos.columns:
                     benchmark = df_precos[benchmark_ticker]
@@ -174,7 +177,9 @@ if ativos_str:
                         sharpe = retorno_medio_ano / volatilidade_ano if volatilidade_ano != 0 else np.nan
                         max_drawdown = ((serie / serie.cummax()) - 1).min()
 
+                        # Cálculo Alpha e Beta com benchmark convertido para BRL (se possível)
                         if benchmark_retornos is not None:
+                            # Alinhar índices para regressão
                             df_reg = pd.DataFrame({
                                 "benchmark": benchmark_retornos,
                                 "ativo": retornos_diarios
