@@ -302,7 +302,7 @@ if ativos_str:
                 try:
                     model = ARIMA(serie_previsao, order=(2, 1, 2))
                     model_fit = model.fit()
-                    previsao = model_fit.get_forecast(steps=35)
+                    previsao = model_fit.get_forecast(steps=30)
                     previsao_df = previsao.summary_frame()
 
                     fig = go.Figure()
