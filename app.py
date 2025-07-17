@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore")
 st.set_page_config(page_title="App Investimentos", page_icon="💰", layout="wide")
 st.markdown("# 💰 Analisador Simples de Investimentos")
 
-# Função para buscar o índice de medo e ganância da alternativa API
+# Função para buscar o índice de medo e ganância da API alternativa
 @st.cache_data(ttl=3600)
 def get_fear_and_greed_index():
     try:
@@ -150,11 +150,10 @@ if ativos_str:
                 st.subheader("📊 Métricas Financeiras dos Ativos")
                 metrics = {}
 
-                # Para cálculo Alpha e Beta, pegamos benchmark (se disponível)
-                # Se tiver IBOV, usamos IBOV, senão nenhum
+                # Benchmark para Alpha e Beta (IBOV)
                 benchmark_ticker = "^BVSP"
                 if benchmark_ticker in df_precos.columns:
-                    benchmark = df_precos[benchmark_ticker]
+                    benchmark = df_precos[benchmark_ticker].dropna()
                     benchmark_retornos = benchmark.pct_change().dropna()
                 else:
                     benchmark = None
@@ -176,16 +175,13 @@ if ativos_str:
                         sharpe = retorno_medio_ano / volatilidade_ano if volatilidade_ano != 0 else np.nan
                         max_drawdown = ((serie / serie.cummax()) - 1).min()
 
-                        # Cálculo Alpha e Beta com benchmark convertido para BRL (se possível)
+                        # Alpha e Beta
                         if benchmark_retornos is not None:
-                            # Alinhar índices para regressão
-                            df_reg = pd.DataFrame({
-                                "benchmark": benchmark_retornos,
-                                "ativo": retornos_diarios
-                            }).dropna()
+                            df_reg = pd.concat([benchmark_retornos, retornos_diarios], axis=1).dropna()
+                            df_reg.columns = ['benchmark', 'ativo']
                             if len(df_reg) > 10:
-                                X = df_reg["benchmark"].values.reshape(-1, 1)
-                                y = df_reg["ativo"].values
+                                X = df_reg['benchmark'].values.reshape(-1, 1)
+                                y = df_reg['ativo'].values
                                 modelo = LinearRegression().fit(X, y)
                                 alpha = modelo.intercept_
                                 beta = modelo.coef_[0]
@@ -354,4 +350,3 @@ if ativos_str:
                     st.plotly_chart(fig, use_container_width=True)
                 except Exception as e:
                     st.error(f"Erro ao calcular previsão ARIMA: {e}")
-
