@@ -5,11 +5,42 @@ import numpy as np
 import plotly.graph_objects as go
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.linear_model import LinearRegression
+import requests
 import warnings
 warnings.filterwarnings("ignore")
 
 st.set_page_config(page_title="App Investimentos", page_icon="💰", layout="wide")
 st.markdown("# 💰 Analisador Simples de Investimentos")
+
+# Função para buscar o índice de medo e ganância da alternativa API
+@st.cache_data(ttl=3600)
+def get_fear_and_greed_index():
+    try:
+        url = "https://api.alternative.me/fng/"
+        response = requests.get(url).json()
+        value = int(response['data'][0]['value'])
+        return value
+    except:
+        return None
+
+def plot_fear_greed_gauge(value):
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=value,
+        title={'text': "Índice de Medo e Ganância"},
+        gauge={
+            'axis': {'range': [0, 100]},
+            'bar': {'color': "black"},
+            'steps': [
+                {'range': [0, 25], 'color': "red"},
+                {'range': [25, 50], 'color': "orange"},
+                {'range': [50, 75], 'color': "lightgreen"},
+                {'range': [75, 100], 'color': "green"},
+            ],
+        },
+        domain={'x': [0, 1], 'y': [0, 1]}
+    ))
+    return fig
 
 # Período de análise
 periodo = st.selectbox(
@@ -69,19 +100,26 @@ if ativos_str:
             usd_brl = None
             st.warning(f"Erro ao carregar taxa de câmbio USDBRL: {e}")
 
-        # Lista de ativos que são câmbio e não devem ser convertidos
+        # Ativos que são câmbio e não devem ser convertidos
         tickers_cambio = ["USDBRL=X", "COP=X", "EURBRL=X", "GBPBRL=X", "JPYBRL=X"]
 
-        # Converte os ativos internacionais para BRL, exceto câmbio
-        if usd_brl is not None:
+        # Converte os ativos internacionais para BRL, exceto os pares cambiais
+        if usd_brl is not None and not usd_brl.empty:
             usd_brl_series = usd_brl.reindex(df_precos.index).fillna(method="ffill").fillna(method="bfill")
-            for t in df_precos.columns:
-                if (not t.endswith(".SA")) and (t not in tickers_cambio):
-                    # Multiplicação segura alinhando índice e preenchendo valores faltantes com 1
-                    df_precos[t] = df_precos[t].mul(usd_brl_series, fill_value=1)
-            st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
+            if usd_brl_series.isnull().all():
+                st.warning("A série da taxa de câmbio está vazia após reindexação.")
+            else:
+                for t in df_precos.columns:
+                    if (not t.endswith(".SA")) and (t not in tickers_cambio):
+                        serie_ativo = df_precos[t]
+                        if serie_ativo.isnull().all():
+                            st.warning(f"Série do ativo {t} está vazia.")
+                        else:
+                            df_precos[t] = serie_ativo.mul(usd_brl_series, fill_value=1)
+                st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
+        else:
+            st.warning("Não foi possível usar a taxa USDBRL para conversão.")
 
-        # Aba para escolher o modo: Análise ou Previsão
         aba = st.radio("Escolha a aba:", ["Análise de Preços", "Previsão com ARIMA"])
 
         if aba == "Análise de Preços":
@@ -106,67 +144,79 @@ if ativos_str:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-            # Métricas e simulador ficam abaixo
             col1, col2 = st.columns([2, 1])
 
             with col1:
-                st.subheader("📊 Métricas Financeiras dos Ativos Avançadas")
+                st.subheader("📊 Métricas Financeiras dos Ativos")
                 metrics = {}
 
-                # Para cálculo alpha e beta, usaremos benchmark Ibovespa, se disponível
-                try:
-                    benchmark_data = yf.download("^BVSP", period=periodo[1], progress=False)
-                    benchmark = benchmark_data["Adj Close"]
-                    benchmark = benchmark.reindex(df_precos.index).fillna(method="ffill").fillna(method="bfill")
+                # Para cálculo Alpha e Beta, pegamos benchmark (se disponível)
+                # Se tiver IBOV, usamos IBOV, senão nenhum
+                benchmark_ticker = "^BVSP"
+                if benchmark_ticker in df_precos.columns:
+                    benchmark = df_precos[benchmark_ticker]
                     benchmark_retornos = benchmark.pct_change().dropna()
-                except:
+                else:
                     benchmark = None
                     benchmark_retornos = None
 
                 for t in df_precos.columns:
                     serie = df_precos[t].dropna()
-                    if len(serie) < 2:
-                        # Dados insuficientes
+                    if (
+                        not serie.empty
+                        and pd.api.types.is_numeric_dtype(serie)
+                        and pd.notna(serie.iloc[0])
+                        and pd.notna(serie.iloc[-1])
+                        and serie.iloc[0] != 0
+                    ):
+                        retornos_diarios = serie.pct_change().dropna()
+                        retorno_total = (serie.iloc[-1] / serie.iloc[0]) - 1
+                        retorno_medio_ano = retornos_diarios.mean() * 252
+                        volatilidade_ano = retornos_diarios.std() * np.sqrt(252)
+                        sharpe = retorno_medio_ano / volatilidade_ano if volatilidade_ano != 0 else np.nan
+                        max_drawdown = ((serie / serie.cummax()) - 1).min()
+
+                        # Cálculo Alpha e Beta com benchmark convertido para BRL (se possível)
+                        if benchmark_retornos is not None:
+                            # Alinhar índices para regressão
+                            df_reg = pd.DataFrame({
+                                "benchmark": benchmark_retornos,
+                                "ativo": retornos_diarios
+                            }).dropna()
+                            if len(df_reg) > 10:
+                                X = df_reg["benchmark"].values.reshape(-1, 1)
+                                y = df_reg["ativo"].values
+                                modelo = LinearRegression().fit(X, y)
+                                alpha = modelo.intercept_
+                                beta = modelo.coef_[0]
+                            else:
+                                alpha = np.nan
+                                beta = np.nan
+                        else:
+                            alpha = np.nan
+                            beta = np.nan
+
+                        metrics[t] = {
+                            "Retorno Total (%)": f"{retorno_total:.2%}",
+                            "Retorno Médio Anualizado (%)": f"{retorno_medio_ano:.2%}",
+                            "Volatilidade Anualizada (%)": f"{volatilidade_ano:.2%}",
+                            "Índice Sharpe": f"{sharpe:.2f}" if not np.isnan(sharpe) else "N/A",
+                            "Max Drawdown (%)": f"{max_drawdown:.2%}",
+                            "Alpha": f"{alpha:.4f}" if not np.isnan(alpha) else "N/A",
+                            "Beta": f"{beta:.4f}" if not np.isnan(beta) else "N/A",
+                        }
+                    else:
                         metrics[t] = {
                             "Retorno Total (%)": "N/A",
+                            "Retorno Médio Anualizado (%)": "N/A",
                             "Volatilidade Anualizada (%)": "N/A",
-                            "Sharpe": "N/A",
-                            "Max Drawdown": "N/A",
+                            "Índice Sharpe": "N/A",
+                            "Max Drawdown (%)": "N/A",
                             "Alpha": "N/A",
                             "Beta": "N/A",
                         }
-                        continue
-
-                    retornos_diarios = serie.pct_change().dropna()
-                    retorno_total = (serie.iloc[-1] / serie.iloc[0]) - 1
-                    retorno_medio_ano = retornos_diarios.mean() * 252
-                    volatilidade_ano = retornos_diarios.std() * np.sqrt(252)
-                    sharpe = retorno_medio_ano / volatilidade_ano if volatilidade_ano != 0 else np.nan
-                    max_drawdown = ((serie / serie.cummax()) - 1).min()
-
-                    alpha = beta = np.nan
-                    if benchmark_retornos is not None:
-                        # Para alpha e beta, alinhar as datas
-                        ativos_retornos = retornos_diarios.reindex(benchmark_retornos.index).dropna()
-                        bench_alinhado = benchmark_retornos.reindex(ativos_retornos.index)
-                        if len(ativos_retornos) > 1:
-                            X = bench_alinhado.values.reshape(-1,1)
-                            y = ativos_retornos.values
-                            modelo = LinearRegression().fit(X, y)
-                            alpha = modelo.intercept_
-                            beta = modelo.coef_[0]
-
-                    metrics[t] = {
-                        "Retorno Total (%)": f"{retorno_total:.2%}",
-                        "Volatilidade Anualizada (%)": f"{volatilidade_ano:.2%}",
-                        "Sharpe": f"{sharpe:.2f}" if not np.isnan(sharpe) else "N/A",
-                        "Max Drawdown": f"{max_drawdown:.2%}",
-                        "Alpha": f"{alpha:.4f}" if not np.isnan(alpha) else "N/A",
-                        "Beta": f"{beta:.4f}" if not np.isnan(beta) else "N/A",
-                    }
-
                 df_metrics = pd.DataFrame(metrics).T
-                st.dataframe(df_metrics)
+                st.table(df_metrics)
 
             with col2:
                 st.subheader("🧮 Simulador de Carteira")
@@ -234,6 +284,13 @@ if ativos_str:
                     "Lucro/Prejuízo (%)": "{:.2%}",
                 }))
 
+                valor_fg = get_fear_and_greed_index()
+                if valor_fg is not None:
+                    st.subheader("🚀 Índice de Medo e Ganância (Crypto)")
+                    st.plotly_chart(plot_fear_greed_gauge(valor_fg), use_container_width=True)
+                else:
+                    st.warning("Não foi possível obter o índice de medo e ganância.")
+
         elif aba == "Previsão com ARIMA":
             st.subheader("📅 Previsão com ARIMA para um ativo selecionado")
 
@@ -244,14 +301,12 @@ if ativos_str:
             if len(serie_previsao) < 30:
                 st.warning("Dados insuficientes para realizar previsão confiável (menos de 30 pontos).")
             else:
-                # Treinar modelo ARIMA (parâmetros simples para exemplo)
                 try:
                     model = ARIMA(serie_previsao, order=(2, 1, 2))
                     model_fit = model.fit()
                     previsao = model_fit.get_forecast(steps=10)
                     previsao_df = previsao.summary_frame()
 
-                    # Preparar gráfico com histórico + previsão
                     fig = go.Figure()
 
                     fig.add_trace(go.Scatter(
