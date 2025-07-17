@@ -119,11 +119,17 @@ if ativos_str:
 
             fig = go.Figure()
             for t in df_precos.columns:
+                serie = df_precos[t]
+                retorno_pct = (serie / serie.iloc[0] - 1) * 100
+                hover_text = [f"<b>{t}</b><br>Data: {d.date()}<br>Preço: R$ {p:.2f}<br>Variação: {v:.2f}%" for d, p, v in zip(serie.index, serie.values, retorno_pct)]
+
                 fig.add_trace(go.Scatter(
-                    x=df_precos.index,
-                    y=df_precos[t],
+                    x=serie.index,
+                    y=serie.values,
                     mode='lines',
-                    name=t
+                    name=t,
+                    text=hover_text,
+                    hoverinfo='text'
                 ))
 
             fig.update_layout(
@@ -181,7 +187,20 @@ if ativos_str:
                         "Alpha": f"{alpha:.4f}" if not np.isnan(alpha) else "N/A",
                         "Beta": f"{beta:.4f}" if not np.isnan(beta) else "N/A",
                     }
+
                 df_metrics = pd.DataFrame(metrics).T
+
+                # Aqui adiciono o tooltip explicativo ANTES da tabela
+                st.markdown("### ℹ️ Explicações das Métricas Financeiras")
+                st.markdown("""
+                - **Retorno Total (%)**: Diferença percentual entre o preço final e inicial.
+                - **Volatilidade Anualizada (%)**: Medida do risco baseada na variação diária anualizada.
+                - **Sharpe**: Retorno adicional por unidade de risco (quanto maior, melhor).
+                - **Max Drawdown**: Maior perda em relação ao pico anterior.
+                - **Alpha**: Excesso de retorno em relação ao benchmark.
+                - **Beta**: Sensibilidade do ativo em relação ao benchmark (risco sistemático).
+                """)
+
                 st.dataframe(df_metrics)
 
             with col2:
