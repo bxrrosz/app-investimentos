@@ -104,9 +104,12 @@ if ativos_str:
         if usd_brl is not None:
             usd_brl_series = usd_brl if isinstance(usd_brl, pd.Series) else usd_brl.iloc[:, 0]
             usd_brl_series = usd_brl_series.reindex(df_precos.index).fillna(method="ffill").fillna(method="bfill")
+
             for t in df_precos.columns:
-                if not t.endswith(".SA"):
+                # Ignorar ativos que terminam com .SA (BR) e que terminam com '=X' (câmbios)
+                if not t.endswith(".SA") and not t.endswith("=X"):
                     df_precos[t] = df_precos[t] * usd_brl_series
+
             st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
 
         aba = st.radio("Escolha a aba:", ["Análise de Preços", "Previsão com ARIMA"])
