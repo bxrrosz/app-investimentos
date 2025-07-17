@@ -299,21 +299,26 @@ if ativos_str:
             if len(serie_previsao) < 30:
                 st.warning("Dados insuficientes para realizar previsão confiável (menos de 30 pontos).")
             else:
+                # Slider para o usuário escolher o número de dias da previsão
+                dias_previsao = st.slider("Número de dias para previsão:", min_value=5, max_value=90, value=30, step=1)
+
                 try:
                     model = ARIMA(serie_previsao, order=(2, 1, 2))
                     model_fit = model.fit()
-                    previsao = model_fit.get_forecast(steps=30)
+                    previsao = model_fit.get_forecast(steps=dias_previsao)
                     previsao_df = previsao.summary_frame()
 
                     fig = go.Figure()
 
+                    # Preço real histórico
                     fig.add_trace(go.Scatter(
                         x=serie_previsao.index,
                         y=serie_previsao.values,
                         mode='lines',
-                        name='Histórico'
+                        name='Preço Real'
                     ))
 
+                    # Previsão
                     fig.add_trace(go.Scatter(
                         x=previsao_df.index,
                         y=previsao_df['mean'],
@@ -321,32 +326,35 @@ if ativos_str:
                         name='Previsão'
                     ))
 
+                    # Limite inferior do intervalo de confiança 95%
                     fig.add_trace(go.Scatter(
                         x=previsao_df.index,
                         y=previsao_df['mean_ci_lower'],
                         mode='lines',
-                        name='Limite Inferior (95%)',
                         line=dict(dash='dash'),
+                        name='Limite Inferior (95%)',
                         showlegend=False
                     ))
 
+                    # Limite superior do intervalo de confiança 95%
                     fig.add_trace(go.Scatter(
                         x=previsao_df.index,
                         y=previsao_df['mean_ci_upper'],
                         mode='lines',
-                        name='Limite Superior (95%)',
                         line=dict(dash='dash'),
                         fill='tonexty',
                         fillcolor='rgba(0,100,80,0.2)',
+                        name='Limite Superior (95%)',
                         showlegend=False
                     ))
 
                     fig.update_layout(
+                        title=f"Previsão ARIMA para {ativo_selecionado} ({dias_previsao} dias)",
                         xaxis_title="Data",
                         yaxis_title="Preço Ajustado (R$)",
                         template="plotly_white",
                         hovermode="x unified",
-                        legend_title_text="Ativo",
+                        legend_title_text="Legenda",
                         height=500,
                     )
                     st.plotly_chart(fig, use_container_width=True)
