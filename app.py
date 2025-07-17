@@ -3,6 +3,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import plotly.express as px
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.linear_model import LinearRegression
 import requests
@@ -57,7 +58,7 @@ periodo = st.selectbox(
     format_func=lambda x: x[0]
 )
 
-# Entrada de ativos com exemplo preenchido
+# Entrada de ativos
 ativos_str = st.text_input(
     "Digite os tickers da bolsa separados por vírgula",
     value="",
@@ -85,12 +86,10 @@ if ativos_str:
         if isinstance(df_precos.columns, pd.MultiIndex):
             df_precos.columns = df_precos.columns.droplevel(0)
 
-        # Preencher índice com datas contínuas para evitar intervalos vazios no gráfico
         full_index = pd.date_range(start=df_precos.index.min(), end=df_precos.index.max(), freq='B')
         df_precos = df_precos.reindex(full_index)
         df_precos = df_precos.fillna(method='ffill').fillna(method='bfill')
 
-        # Baixa taxa USD-BRL para o período escolhido
         try:
             usd_brl = yf.download("USDBRL=X", period=periodo[1], progress=False)["Close"]
             if usd_brl.empty:
@@ -100,19 +99,17 @@ if ativos_str:
             usd_brl = None
             st.warning(f"Erro ao carregar taxa de câmbio USDBRL: {e}")
 
-        # Converte os ativos internacionais para BRL
         if usd_brl is not None:
             usd_brl_series = usd_brl if isinstance(usd_brl, pd.Series) else usd_brl.iloc[:, 0]
             usd_brl_series = usd_brl_series.reindex(df_precos.index).fillna(method="ffill").fillna(method="bfill")
 
             for t in df_precos.columns:
-                # Ignorar ativos que terminam com .SA (BR) e que terminam com '=X' (câmbios)
                 if not t.endswith(".SA") and not t.endswith("=X"):
                     df_precos[t] = df_precos[t] * usd_brl_series
 
             st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
 
-        aba = st.radio("Escolha a aba:", ["Análise de Preços", "Previsão com ARIMA"])
+        aba = st.radio("Escolha a aba:", ["Análise de Preços", "Previsão com ARIMA", "Simulação de Carteira Personalizada"])
 
         if aba == "Análise de Preços":
             st.subheader(f"📈 Gráfico Interativo de Preços Ajustados ({periodo[0]})")
@@ -147,7 +144,6 @@ if ativos_str:
             with col1:
                 st.subheader("📊 Métricas Financeiras Básicas")
 
-                # Benchmark para cálculo de alpha e beta: usar o primeiro ativo da lista
                 benchmark_name = tickers[0]
                 benchmark = df_precos[benchmark_name].dropna() if benchmark_name in df_precos.columns else None
 
@@ -161,7 +157,6 @@ if ativos_str:
                     sharpe = retorno_medio_ano / volatilidade_ano if volatilidade_ano != 0 else np.nan
                     max_drawdown = ((serie / serie.cummax()) - 1).min()
 
-                    # Calcular alpha e beta mesmo para internacionais, usando merge de retornos alinhados
                     if benchmark is not None:
                         benchmark_retornos = benchmark.pct_change()
                         ativo_retornos = serie.pct_change()
@@ -190,7 +185,6 @@ if ativos_str:
 
                 df_metrics = pd.DataFrame(metrics).T
 
-                # Explicações das métricas básicas
                 st.markdown("""
                 **Explicações das Métricas Básicas:**  
                 - **Retorno Total (%)**: Diferença percentual entre o preço final e inicial do ativo.  
@@ -203,7 +197,6 @@ if ativos_str:
                 st.markdown("---")
                 st.subheader("📊 Métricas Financeiras Avançadas")
 
-                # Explicações das métricas avançadas
                 st.markdown("""
                 **Explicações das Métricas Avançadas:**  
                 - **Volatilidade Anualizada (%)**: Medida da variação dos retornos diária, anualizada; indica risco do ativo.  
@@ -281,7 +274,6 @@ if ativos_str:
                     "Lucro/Prejuízo (%)": "{:.2%}",
                 }))
 
-                # Mostrar índice de medo e ganância crypto (alternative.me)
                 fg_value = get_fear_and_greed_index()
                 if fg_value is not None:
                     st.subheader("🚀 Índice de Medo e Ganância (Crypto)")
@@ -294,14 +286,13 @@ if ativos_str:
 
             ativo_selecionado = st.selectbox("Escolha o ativo para previsão:", df_precos.columns)
 
+            dias_previsao = st.number_input("Número de dias para previsão:", min_value=5, max_value=180, value=30, step=5)
+
             serie_previsao = df_precos[ativo_selecionado].dropna()
 
             if len(serie_previsao) < 30:
                 st.warning("Dados insuficientes para realizar previsão confiável (menos de 30 pontos).")
             else:
-                # Slider para o usuário escolher o número de dias da previsão
-                dias_previsao = st.slider("Número de dias para previsão:", min_value=5, max_value=90, value=30, step=1)
-
                 try:
                     model = ARIMA(serie_previsao, order=(2, 1, 2))
                     model_fit = model.fit()
@@ -310,15 +301,13 @@ if ativos_str:
 
                     fig = go.Figure()
 
-                    # Preço real histórico
                     fig.add_trace(go.Scatter(
                         x=serie_previsao.index,
                         y=serie_previsao.values,
                         mode='lines',
-                        name='Preço Real'
+                        name='Histórico'
                     ))
 
-                    # Previsão
                     fig.add_trace(go.Scatter(
                         x=previsao_df.index,
                         y=previsao_df['mean'],
@@ -326,37 +315,116 @@ if ativos_str:
                         name='Previsão'
                     ))
 
-                    # Limite inferior do intervalo de confiança 95%
                     fig.add_trace(go.Scatter(
                         x=previsao_df.index,
                         y=previsao_df['mean_ci_lower'],
                         mode='lines',
-                        line=dict(dash='dash'),
                         name='Limite Inferior (95%)',
+                        line=dict(dash='dash'),
                         showlegend=False
                     ))
 
-                    # Limite superior do intervalo de confiança 95%
                     fig.add_trace(go.Scatter(
                         x=previsao_df.index,
                         y=previsao_df['mean_ci_upper'],
                         mode='lines',
+                        name='Limite Superior (95%)',
                         line=dict(dash='dash'),
                         fill='tonexty',
                         fillcolor='rgba(0,100,80,0.2)',
-                        name='Limite Superior (95%)',
                         showlegend=False
                     ))
 
                     fig.update_layout(
-                        title=f"Previsão ARIMA para {ativo_selecionado} ({dias_previsao} dias)",
                         xaxis_title="Data",
                         yaxis_title="Preço Ajustado (R$)",
                         template="plotly_white",
                         hovermode="x unified",
-                        legend_title_text="Legenda",
+                        legend_title_text="Ativo",
                         height=500,
                     )
                     st.plotly_chart(fig, use_container_width=True)
                 except Exception as e:
                     st.error(f"Erro ao calcular previsão ARIMA: {e}")
+
+        elif aba == "Simulação de Carteira Personalizada":
+            st.subheader("🛠 Simulação de Carteira Personalizada")
+
+            st.write("Informe o peso (%) de cada ativo na carteira. A soma deve ser 100%.")
+
+            pesos = {}
+            soma_pesos = 0
+            for t in df_precos.columns:
+                peso = st.number_input(f"Peso para {t} (%):", min_value=0.0, max_value=100.0, value=0.0, step=0.1, key=f"peso_{t}")
+                pesos[t] = peso
+                soma_pesos += peso
+
+            if soma_pesos != 100:
+                st.warning(f"A soma dos pesos é {soma_pesos:.2f}%. Ela deve ser exatamente 100%. Ajuste os pesos.")
+            else:
+                retornos_diarios = df_precos.pct_change().dropna()
+                pesos_array = np.array([pesos[t] / 100 for t in df_precos.columns])
+                retorno_carteira_diario = retornos_diarios.dot(pesos_array)
+                retorno_total = ((1 + retorno_carteira_diario).prod()) - 1
+                volatilidade_ano = retorno_carteira_diario.std() * np.sqrt(252)
+
+                benchmark_name = tickers[0]
+                benchmark_retornos = retornos_diarios[benchmark_name]
+
+                X = benchmark_retornos.values.reshape(-1, 1)
+                y = retorno_carteira_diario.values
+                modelo = LinearRegression().fit(X, y)
+                alpha = modelo.intercept_
+                beta = modelo.coef_[0]
+
+                st.markdown("### 📈 Resultados da Carteira")
+
+                st.write(f"- **Retorno Total:** {retorno_total:.2%}")
+                st.write(f"- **Volatilidade Anualizada:** {volatilidade_ano:.2%}")
+                st.write(f"- **Alpha:** {alpha:.4f}")
+                st.write(f"- **Beta:** {beta:.4f}")
+
+                valor_carteira = (1 + retorno_carteira_diario).cumprod()
+
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=valor_carteira.index,
+                    y=valor_carteira.values,
+                    mode='lines',
+                    name='Carteira'
+                ))
+
+                for t in df_precos.columns:
+                    retorno_ativo = (1 + retornos_diarios[t]).cumprod()
+                    fig.add_trace(go.Scatter(
+                        x=retorno_ativo.index,
+                        y=retorno_ativo.values,
+                        mode='lines',
+                        name=t,
+                        line=dict(dash='dot'),
+                        opacity=0.6
+                    ))
+
+                fig.update_layout(
+                    title="Evolução da Carteira e dos Ativos",
+                    xaxis_title="Data",
+                    yaxis_title="Valor Acumulado (Índice)",
+                    legend_title_text="Ativos / Carteira",
+                    template="plotly_white",
+                    height=500
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+                corr = retornos_diarios.corr()
+
+                st.markdown("### 🔍 Matriz de Correlação entre Ativos")
+
+                fig_corr = px.imshow(
+                    corr,
+                    text_auto=True,
+                    color_continuous_scale='RdBu_r',
+                    origin='lower',
+                    title='Matriz de Correlação dos Retornos Diários'
+                )
+                st.plotly_chart(fig_corr, use_container_width=True)
+
