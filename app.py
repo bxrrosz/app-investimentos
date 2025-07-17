@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore")
 st.set_page_config(page_title="App Investimentos", page_icon="💰", layout="wide")
 st.markdown("# 💰 Analisador Simples de Investimentos")
 
-# Função para buscar o índice de medo e ganância da alternativa API
+# Função para buscar o índice de medo e ganância (crypto fear and greed) - alternative.me
 @st.cache_data(ttl=3600)
 def get_fear_and_greed_index():
     try:
@@ -20,14 +20,14 @@ def get_fear_and_greed_index():
         response = requests.get(url).json()
         value = int(response['data'][0]['value'])
         return value
-    except:
+    except Exception:
         return None
 
 def plot_fear_greed_gauge(value):
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
         value=value,
-        title={'text': "Índice de Medo e Ganância"},
+        title={'text': "Índice de Medo e Ganância (Crypto)"},
         gauge={
             'axis': {'range': [0, 100]},
             'bar': {'color': "black"},
@@ -86,7 +86,7 @@ if ativos_str:
             df_precos.columns = df_precos.columns.droplevel(0)
 
         # Preencher índice com datas contínuas para evitar intervalos vazios no gráfico
-        full_index = pd.date_range(start=df_precos.index.min(), end=df_precos.index.max(), freq='B')  # freq business day
+        full_index = pd.date_range(start=df_precos.index.min(), end=df_precos.index.max(), freq='B')
         df_precos = df_precos.reindex(full_index)
         df_precos = df_precos.fillna(method='ffill').fillna(method='bfill')
 
@@ -100,26 +100,14 @@ if ativos_str:
             usd_brl = None
             st.warning(f"Erro ao carregar taxa de câmbio USDBRL: {e}")
 
-        # Ativos que são câmbio e não devem ser convertidos
-        tickers_cambio = ["USDBRL=X", "COP=X", "EURBRL=X", "GBPBRL=X", "JPYBRL=X"]
-
-        # Converte os ativos internacionais para BRL, exceto os pares cambiais
-        if usd_brl is not None and not usd_brl.empty:
-            usd_brl_series = usd_brl.reindex(df_precos.index).fillna(method="ffill").fillna(method="bfill")
-            # Corrigido para evitar erro de ambiguidade em bool
-            if (usd_brl_series is None) or (usd_brl_series.empty) or (bool(usd_brl_series.isnull().all())):
-                st.warning("A série da taxa de câmbio está vazia após reindexação.")
-            else:
-                for t in df_precos.columns:
-                    if (not t.endswith(".SA")) and (t not in tickers_cambio):
-                        serie_ativo = df_precos[t]
-                        if serie_ativo.isnull().all():
-                            st.warning(f"Série do ativo {t} está vazia.")
-                        else:
-                            df_precos[t] = serie_ativo.mul(usd_brl_series, fill_value=1)
-                st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
-        else:
-            st.warning("Não foi possível usar a taxa USDBRL para conversão.")
+        # Converte os ativos internacionais para BRL
+        if usd_brl is not None:
+            usd_brl_series = usd_brl if isinstance(usd_brl, pd.Series) else usd_brl.iloc[:, 0]
+            usd_brl_series = usd_brl_series.reindex(df_precos.index).fillna(method="ffill").fillna(method="bfill")
+            for t in df_precos.columns:
+                if not t.endswith(".SA"):
+                    df_precos[t] = df_precos[t] * usd_brl_series
+            st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
 
         aba = st.radio("Escolha a aba:", ["Análise de Preços", "Previsão com ARIMA"])
 
@@ -148,76 +136,50 @@ if ativos_str:
             col1, col2 = st.columns([2, 1])
 
             with col1:
-                st.subheader("📊 Métricas Financeiras dos Ativos")
+                st.subheader("📊 Métricas Financeiras Avançadas")
+
+                # Benchmark para cálculo de alpha e beta: usar o primeiro ativo da lista
+                benchmark_name = tickers[0]
+                benchmark = df_precos[benchmark_name].dropna() if benchmark_name in df_precos.columns else None
+
                 metrics = {}
-
-                # Para cálculo Alpha e Beta, pegamos benchmark (se disponível)
-                # Se tiver IBOV, usamos IBOV, senão nenhum
-                benchmark_ticker = "^BVSP"
-                if benchmark_ticker in df_precos.columns:
-                    benchmark = df_precos[benchmark_ticker]
-                    benchmark_retornos = benchmark.pct_change().dropna()
-                else:
-                    benchmark = None
-                    benchmark_retornos = None
-
                 for t in df_precos.columns:
                     serie = df_precos[t].dropna()
-                    if (
-                        not serie.empty
-                        and pd.api.types.is_numeric_dtype(serie)
-                        and pd.notna(serie.iloc[0])
-                        and pd.notna(serie.iloc[-1])
-                        and serie.iloc[0] != 0
-                    ):
-                        retornos_diarios = serie.pct_change().dropna()
-                        retorno_total = (serie.iloc[-1] / serie.iloc[0]) - 1
-                        retorno_medio_ano = retornos_diarios.mean() * 252
-                        volatilidade_ano = retornos_diarios.std() * np.sqrt(252)
-                        sharpe = retorno_medio_ano / volatilidade_ano if volatilidade_ano != 0 else np.nan
-                        max_drawdown = ((serie / serie.cummax()) - 1).min()
+                    retornos_diarios = serie.pct_change().dropna()
+                    retorno_total = (serie.iloc[-1] / serie.iloc[0]) - 1
+                    retorno_medio_ano = retornos_diarios.mean() * 252
+                    volatilidade_ano = retornos_diarios.std() * np.sqrt(252)
+                    sharpe = retorno_medio_ano / volatilidade_ano if volatilidade_ano != 0 else np.nan
+                    max_drawdown = ((serie / serie.cummax()) - 1).min()
 
-                        # Cálculo Alpha e Beta com benchmark convertido para BRL (se possível)
-                        if benchmark_retornos is not None:
-                            # Alinhar índices para regressão
-                            df_reg = pd.DataFrame({
-                                "benchmark": benchmark_retornos,
-                                "ativo": retornos_diarios
-                            }).dropna()
-                            if len(df_reg) > 10:
-                                X = df_reg["benchmark"].values.reshape(-1, 1)
-                                y = df_reg["ativo"].values
-                                modelo = LinearRegression().fit(X, y)
-                                alpha = modelo.intercept_
-                                beta = modelo.coef_[0]
-                            else:
-                                alpha = np.nan
-                                beta = np.nan
+                    # Calcular alpha e beta mesmo para internacionais, usando merge de retornos alinhados
+                    if benchmark is not None:
+                        benchmark_retornos = benchmark.pct_change()
+                        ativo_retornos = serie.pct_change()
+                        df_merge = pd.concat([benchmark_retornos, ativo_retornos], axis=1).dropna()
+                        df_merge.columns = ['benchmark', 'ativo']
+
+                        if len(df_merge) > 1:
+                            X = df_merge[['benchmark']].values
+                            y = df_merge['ativo'].values
+                            modelo = LinearRegression().fit(X, y)
+                            alpha = modelo.intercept_
+                            beta = modelo.coef_[0]
                         else:
-                            alpha = np.nan
-                            beta = np.nan
-
-                        metrics[t] = {
-                            "Retorno Total (%)": f"{retorno_total:.2%}",
-                            "Retorno Médio Anualizado (%)": f"{retorno_medio_ano:.2%}",
-                            "Volatilidade Anualizada (%)": f"{volatilidade_ano:.2%}",
-                            "Índice Sharpe": f"{sharpe:.2f}" if not np.isnan(sharpe) else "N/A",
-                            "Max Drawdown (%)": f"{max_drawdown:.2%}",
-                            "Alpha": f"{alpha:.4f}" if not np.isnan(alpha) else "N/A",
-                            "Beta": f"{beta:.4f}" if not np.isnan(beta) else "N/A",
-                        }
+                            alpha = beta = np.nan
                     else:
-                        metrics[t] = {
-                            "Retorno Total (%)": "N/A",
-                            "Retorno Médio Anualizado (%)": "N/A",
-                            "Volatilidade Anualizada (%)": "N/A",
-                            "Índice Sharpe": "N/A",
-                            "Max Drawdown (%)": "N/A",
-                            "Alpha": "N/A",
-                            "Beta": "N/A",
-                        }
+                        alpha = beta = np.nan
+
+                    metrics[t] = {
+                        "Retorno Total (%)": f"{retorno_total:.2%}",
+                        "Volatilidade Anualizada (%)": f"{volatilidade_ano:.2%}",
+                        "Sharpe": f"{sharpe:.2f}" if not np.isnan(sharpe) else "N/A",
+                        "Max Drawdown": f"{max_drawdown:.2%}",
+                        "Alpha": f"{alpha:.4f}" if not np.isnan(alpha) else "N/A",
+                        "Beta": f"{beta:.4f}" if not np.isnan(beta) else "N/A",
+                    }
                 df_metrics = pd.DataFrame(metrics).T
-                st.table(df_metrics)
+                st.dataframe(df_metrics)
 
             with col2:
                 st.subheader("🧮 Simulador de Carteira")
@@ -285,12 +247,13 @@ if ativos_str:
                     "Lucro/Prejuízo (%)": "{:.2%}",
                 }))
 
-                valor_fg = get_fear_and_greed_index()
-                if valor_fg is not None:
+                # Mostrar índice de medo e ganância crypto (alternative.me)
+                fg_value = get_fear_and_greed_index()
+                if fg_value is not None:
                     st.subheader("🚀 Índice de Medo e Ganância (Crypto)")
-                    st.plotly_chart(plot_fear_greed_gauge(valor_fg), use_container_width=True)
+                    st.plotly_chart(plot_fear_greed_gauge(fg_value), use_container_width=True)
                 else:
-                    st.warning("Não foi possível obter o índice de medo e ganância.")
+                    st.warning("Não foi possível obter o índice de medo e ganância (Crypto).")
 
         elif aba == "Previsão com ARIMA":
             st.subheader("📅 Previsão com ARIMA para um ativo selecionado")
