@@ -2,109 +2,319 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import datetime
 import plotly.graph_objects as go
-import requests
+from statsmodels.tsa.arima.model import ARIMA
 from sklearn.linear_model import LinearRegression
+import requests
+import warnings
+warnings.filterwarnings("ignore")
 
-st.set_page_config(layout="wide", page_title="App de Investimentos")
+st.set_page_config(page_title="App Investimentos", page_icon="💰", layout="wide")
+st.markdown("# 💰 Analisador Simples de Investimentos")
 
-# Função para índice de medo e ganância
+# Função para buscar o índice real de medo e ganância da CNN
 @st.cache_data(ttl=3600)
-def get_fear_and_greed():
+def get_fear_and_greed_cnn():
     try:
-        resp = requests.get("https://api.alternative.me/fng/")
-        val = int(resp.json()["data"][0]["value"])
-        txt = resp.json()["data"][0]["value_classification"]
-        return val, txt
-    except:
-        return None, None
+        url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
+        response = requests.get(url).json()
+        # A resposta tem várias séries, a principal é 'fear_and_greed_index' -> última data é valor atual
+        value = int(response["fear_and_greed_index"][-1]["value"])
+        return value
+    except Exception as e:
+        return None
 
-st.title("💼 Aplicativo de Análise de Investimentos")
-
-# Sidebar
-st.sidebar.header("Configuração da Carteira")
-ativos = st.sidebar.text_input("Digite os ativos (ex: PETR4.SA, VALE3.SA, AAPL):", value="")
-pesos = st.sidebar.text_input("Pesos (%):", value="50, 50")
-data_inicio = st.sidebar.date_input("Data de início", value=datetime.date(2022, 1, 1))
-
-ativos_lista = [a.strip().upper() for a in nativos.split(",") if a.strip()]
-pesos_lista = [float(p) for p in pesos.split(",") if p.strip()]
-
-if len(ativos_lista) != len(pesos_lista):
-    st.error("O número de ativos e pesos precisa ser igual.")
-    st.stop()
-
-# Dados de preço
-dados = yf.download(ativos_lista, start=data_inicio)["Close"].dropna()
-retornos = dados.pct_change().dropna()
-
-# Normaliza para plot
-precos_normalizados = dados / dados.iloc[0]
-st.subheader("📈 Retorno dos Ativos")
-st.line_chart(precos_normalizados)
-
-# Análise Avançada
-st.subheader("Análise Avançada da Carteira")
-vol = retornos.std() * np.sqrt(252)
-sharpe = retornos.mean() * 252 / vol
-
-ibov = yf.download("^BVSP", start=data_inicio)["Close"].pct_change().reindex(retornos.index).dropna()
-alphas, betas = [], []
-for ativo in retornos.columns:
-    X = ibov.values.reshape(-1, 1)
-    y = retornos[ativo].reindex(ibov.index).dropna()
-    X = X[-len(y):]
-    reg = LinearRegression().fit(X, y)
-    alphas.append(reg.intercept_)
-    betas.append(reg.coef_[0])
-
-drawdowns = (retornos.cumsum() - retornos.cumsum().cummax()).min()
-
-metrics_df = pd.DataFrame({
-    "Volatilidade (%)": (vol * 100).round(2),
-    "Sharpe": sharpe.round(2),
-    "Alpha": np.round(alphas, 5),
-    "Beta": np.round(betas, 5),
-    "Max Drawdown (%)": (drawdowns * 100).round(2)
-})
-
-st.dataframe(metrics_df)
-
-# Composição da Carteira
-st.subheader("💲 Composição da Carteira")
-carteira_valores = {}
-for i, a in enumerate(ativos_lista):
-    carteira_valores[a] = {
-        "peso": pesos_lista[i],
-        "preco_atual": dados[a].iloc[-1],
-        "valor": pesos_lista[i] * dados[a].iloc[-1]
-    }
-
-carteira_df = pd.DataFrame(carteira_valores).T
-carteira_df["valor"] = carteira_df["valor"].round(2)
-st.dataframe(carteira_df)
-
-# Fear & Greed
-st.subheader("😨 Índice de Medo & Ganância")
-valor_fear, texto_fear = get_fear_and_greed()
-if valor_fear is not None:
+def plot_fear_greed_gauge(value):
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
-        value=valor_fear,
-        title={"text": texto_fear},
+        value=value,
+        title={'text': "Índice de Medo e Ganância (CNN)"},
         gauge={
-            "axis": {"range": [0, 100]},
-            "bar": {"color": "black"},
-            "steps": [
-                {"range": [0, 25], "color": "red"},
-                {"range": [25, 50], "color": "orange"},
-                {"range": [50, 75], "color": "lightgreen"},
-                {"range": [75, 100], "color": "green"}
-            ]
-        }
+            'axis': {'range': [0, 100]},
+            'bar': {'color': "black"},
+            'steps': [
+                {'range': [0, 25], 'color': "red"},
+                {'range': [25, 50], 'color': "orange"},
+                {'range': [50, 75], 'color': "lightgreen"},
+                {'range': [75, 100], 'color': "green"},
+            ],
+        },
+        domain={'x': [0, 1], 'y': [0, 1]}
     ))
-    fig.update_layout(height=300)
-    st.plotly_chart(fig, use_container_width=True)
-else:
-    st.warning("Não foi possível carregar o índice de medo e ganância.")
+    return fig
+
+# Período de análise
+periodo = st.selectbox(
+    "Selecione o período de análise:",
+    options=[
+        ("1 mês", "1mo"),
+        ("3 meses", "3mo"),
+        ("6 meses", "6mo"),
+        ("1 ano", "1y"),
+        ("2 anos", "2y"),
+        ("5 anos", "5y"),
+    ],
+    index=2,
+    format_func=lambda x: x[0]
+)
+
+# Entrada de ativos com exemplo preenchido
+ativos_str = st.text_input(
+    "Digite os tickers da bolsa separados por vírgula",
+    value="",
+    placeholder="Ex: PETR4.SA, ITUB3.SA, AAPL, MSFT"
+)
+
+if ativos_str:
+    tickers = [t.strip().upper() for t in ativos_str.split(",") if t.strip()]
+    st.write(f"Analisando: **{', '.join(tickers)}** no período de {periodo[0]}")
+
+    precos = {}
+    for t in tickers:
+        try:
+            dados = yf.download(t, period=periodo[1], progress=False)
+            if not dados.empty:
+                precos[t] = dados["Close"]
+                st.write(f"✅ Dados de {t} carregados com sucesso.")
+            else:
+                st.warning(f"⚠️ Ticker '{t}' não retornou dados.")
+        except Exception as e:
+            st.error(f"❌ Erro ao baixar dados de {t}: {e}")
+
+    if precos:
+        df_precos = pd.concat(precos, axis=1)
+        if isinstance(df_precos.columns, pd.MultiIndex):
+            df_precos.columns = df_precos.columns.droplevel(0)
+
+        # Preencher índice com datas contínuas para evitar intervalos vazios no gráfico
+        full_index = pd.date_range(start=df_precos.index.min(), end=df_precos.index.max(), freq='B')
+        df_precos = df_precos.reindex(full_index)
+        df_precos = df_precos.fillna(method='ffill').fillna(method='bfill')
+
+        # Baixa taxa USD-BRL para o período escolhido
+        try:
+            usd_brl = yf.download("USDBRL=X", period=periodo[1], progress=False)["Close"]
+            if usd_brl.empty:
+                usd_brl = None
+                st.warning("Não foi possível carregar a taxa de câmbio USDBRL.")
+        except Exception as e:
+            usd_brl = None
+            st.warning(f"Erro ao carregar taxa de câmbio USDBRL: {e}")
+
+        # Converte os ativos internacionais para BRL
+        if usd_brl is not None:
+            usd_brl_series = usd_brl if isinstance(usd_brl, pd.Series) else usd_brl.iloc[:, 0]
+            usd_brl_series = usd_brl_series.reindex(df_precos.index).fillna(method="ffill").fillna(method="bfill")
+            for t in df_precos.columns:
+                if not t.endswith(".SA"):
+                    df_precos[t] = df_precos[t] * usd_brl_series
+            st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
+
+        # Aba para escolher o modo: Análise ou Previsão
+        aba = st.radio("Escolha a aba:", ["Análise de Preços", "Previsão com ARIMA"])
+
+        if aba == "Análise de Preços":
+            st.subheader(f"📈 Gráfico Interativo de Preços Ajustados ({periodo[0]})")
+
+            fig = go.Figure()
+            for t in df_precos.columns:
+                fig.add_trace(go.Scatter(
+                    x=df_precos.index,
+                    y=df_precos[t],
+                    mode='lines',
+                    name=t
+                ))
+
+            fig.update_layout(
+                xaxis_title="Data",
+                yaxis_title="Preço Ajustado (R$)",
+                template="plotly_white",
+                hovermode="x unified",
+                legend_title_text="Ativos",
+                height=500,
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Colunas: métricas avançadas e carteira lado a lado
+            col1, col2 = st.columns([2, 1])
+
+            with col1:
+                st.subheader("📊 Métricas Financeiras Avançadas")
+
+                # Para alpha e beta, usar o primeiro ativo como benchmark (se possível)
+                benchmark_name = tickers[0]
+                benchmark = df_precos[benchmark_name].dropna() if benchmark_name in df_precos.columns else None
+
+                metrics = {}
+                for t in df_precos.columns:
+                    serie = df_precos[t].dropna()
+                    retornos_diarios = serie.pct_change().dropna()
+                    retorno_total = (serie.iloc[-1] / serie.iloc[0]) - 1
+                    retorno_medio_ano = retornos_diarios.mean() * 252
+                    volatilidade_ano = retornos_diarios.std() * np.sqrt(252)
+                    sharpe = retorno_medio_ano / volatilidade_ano if volatilidade_ano != 0 else np.nan
+                    max_drawdown = ((serie / serie.cummax()) - 1).min()
+
+                    # Cálculo alpha e beta com benchmark
+                    if benchmark is not None and t != benchmark_name:
+                        benchmark_retornos = benchmark.pct_change().dropna()
+                        df_reg = pd.DataFrame({"x": benchmark_retornos, "y": retornos_diarios}).dropna()
+                        if len(df_reg) > 1:
+                            X = df_reg[["x"]].values
+                            y = df_reg["y"].values
+                            modelo = LinearRegression().fit(X, y)
+                            alpha = modelo.intercept_
+                            beta = modelo.coef_[0]
+                        else:
+                            alpha = beta = np.nan
+                    else:
+                        alpha = beta = np.nan
+
+                    metrics[t] = {
+                        "Retorno Total (%)": f"{retorno_total:.2%}",
+                        "Volatilidade Anualizada (%)": f"{volatilidade_ano:.2%}",
+                        "Sharpe": f"{sharpe:.2f}" if not np.isnan(sharpe) else "N/A",
+                        "Max Drawdown": f"{max_drawdown:.2%}",
+                        "Alpha": f"{alpha:.4f}" if not np.isnan(alpha) else "N/A",
+                        "Beta": f"{beta:.4f}" if not np.isnan(beta) else "N/A",
+                    }
+                df_metrics = pd.DataFrame(metrics).T
+                st.dataframe(df_metrics)
+
+            with col2:
+                st.subheader("🧮 Simulador de Carteira")
+                st.write("Informe quantidades e preços médios para calcular retorno.")
+
+                carteira = {}
+                for t in tickers:
+                    qtd = st.number_input(f"Quantidade de {t}:", min_value=0, step=1, key=f"qtd_{t}")
+                    preco_medio = st.number_input(f"Preço médio de compra de {t} (R$):", min_value=0.0, format="%.2f", key=f"pm_{t}")
+                    carteira[t] = {"quantidade": qtd, "preco_medio": preco_medio}
+
+                valor_total = 0.0
+                valor_investido = 0.0
+                resultado = []
+
+                for t in tickers:
+                    qtd = carteira[t]["quantidade"]
+                    pm = carteira[t]["preco_medio"]
+                    serie = df_precos[t].dropna()
+                    preco_atual = float(serie.iloc[-1]) if not serie.empty else np.nan
+
+                    valor_posicao = qtd * preco_atual
+                    investimento = qtd * pm
+                    lucro_prejuizo = valor_posicao - investimento
+
+                    if isinstance(valor_posicao, (int, float, np.floating)) and not np.isnan(valor_posicao):
+                        valor_total += valor_posicao
+                    else:
+                        try:
+                            valor_total += float(valor_posicao)
+                        except:
+                            pass
+
+                    if isinstance(investimento, (int, float, np.floating)) and not np.isnan(investimento):
+                        valor_investido += investimento
+                    else:
+                        try:
+                            valor_investido += float(investimento)
+                        except:
+                            pass
+
+                    resultado.append({
+                        "Ativo": t,
+                        "Quantidade": qtd,
+                        "Preço Médio (R$)": pm,
+                        "Preço Atual (R$)": preco_atual,
+                        "Valor Posição (R$)": valor_posicao,
+                        "Investimento (R$)": investimento,
+                        "Lucro/Prejuízo (R$)": lucro_prejuizo,
+                    })
+
+                df_resultado = pd.DataFrame(resultado)
+                df_resultado["Lucro/Prejuízo (%)"] = (df_resultado["Lucro/Prejuízo (R$)"] / df_resultado["Investimento (R$)"]).fillna(0)
+
+                st.write(f"**Valor total da carteira:** R$ {valor_total:,.2f}")
+                st.write(f"**Valor total investido:** R$ {valor_investido:,.2f}")
+                st.write(f"**Retorno total da carteira:** {(valor_total / valor_investido - 1) if valor_investido != 0 else 0:.2%}")
+
+                st.dataframe(df_resultado.style.format({
+                    "Preço Médio (R$)": "R$ {:,.2f}",
+                    "Preço Atual (R$)": "R$ {:,.2f}",
+                    "Valor Posição (R$)": "R$ {:,.2f}",
+                    "Investimento (R$)": "R$ {:,.2f}",
+                    "Lucro/Prejuízo (R$)": "R$ {:,.2f}",
+                    "Lucro/Prejuízo (%)": "{:.2%}",
+                }))
+
+                # Mostrar índice de medo e ganância CNN embaixo da carteira
+                fg_value = get_fear_and_greed_cnn()
+                if fg_value is not None:
+                    st.subheader("🚀 Índice de Medo e Ganância (CNN)")
+                    st.plotly_chart(plot_fear_greed_gauge(fg_value), use_container_width=True)
+                else:
+                    st.warning("Não foi possível obter o índice de medo e ganância (CNN).")
+
+        elif aba == "Previsão com ARIMA":
+            st.subheader("📅 Previsão com ARIMA para um ativo selecionado")
+
+            ativo_selecionado = st.selectbox("Escolha o ativo para previsão:", df_precos.columns)
+
+            serie_previsao = df_precos[ativo_selecionado].dropna()
+
+            if len(serie_previsao) < 30:
+                st.warning("Dados insuficientes para realizar previsão confiável (menos de 30 pontos).")
+            else:
+                try:
+                    model = ARIMA(serie_previsao, order=(2, 1, 2))
+                    model_fit = model.fit()
+                    previsao = model_fit.get_forecast(steps=10)
+                    previsao_df = previsao.summary_frame()
+
+                    fig = go.Figure()
+
+                    fig.add_trace(go.Scatter(
+                        x=serie_previsao.index,
+                        y=serie_previsao.values,
+                        mode='lines',
+                        name='Histórico'
+                    ))
+
+                    fig.add_trace(go.Scatter(
+                        x=previsao_df.index,
+                        y=previsao_df['mean'],
+                        mode='lines',
+                        name='Previsão'
+                    ))
+
+                    fig.add_trace(go.Scatter(
+                        x=previsao_df.index,
+                        y=previsao_df['mean_ci_lower'],
+                        mode='lines',
+                        name='Limite Inferior (95%)',
+                        line=dict(dash='dash'),
+                        showlegend=False
+                    ))
+
+                    fig.add_trace(go.Scatter(
+                        x=previsao_df.index,
+                        y=previsao_df['mean_ci_upper'],
+                        mode='lines',
+                        name='Limite Superior (95%)',
+                        line=dict(dash='dash'),
+                        fill='tonexty',
+                        fillcolor='rgba(0,100,80,0.2)',
+                        showlegend=False
+                    ))
+
+                    fig.update_layout(
+                        xaxis_title="Data",
+                        yaxis_title="Preço Ajustado (R$)",
+                        template="plotly_white",
+                        hovermode="x unified",
+                        legend_title_text="Ativo",
+                        height=500,
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Erro ao calcular previsão ARIMA: {e}")
