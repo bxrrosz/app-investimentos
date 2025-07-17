@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore")
 st.set_page_config(page_title="App Investimentos", page_icon="💰", layout="wide")
 st.markdown("# 💰 Analisador Simples de Investimentos")
 
-# Função para buscar o índice de medo e ganância da API alternativa
+# Função para buscar o índice de medo e ganância da alternativa API
 @st.cache_data(ttl=3600)
 def get_fear_and_greed_index():
     try:
@@ -106,7 +106,7 @@ if ativos_str:
         # Converte os ativos internacionais para BRL, exceto os pares cambiais
         if usd_brl is not None and not usd_brl.empty:
             usd_brl_series = usd_brl.reindex(df_precos.index).fillna(method="ffill").fillna(method="bfill")
-            if usd_brl_series.isnull().all():
+            if usd_brl_series is None or usd_brl_series.empty or usd_brl_series.isnull().all():
                 st.warning("A série da taxa de câmbio está vazia após reindexação.")
             else:
                 for t in df_precos.columns:
@@ -150,10 +150,9 @@ if ativos_str:
                 st.subheader("📊 Métricas Financeiras dos Ativos")
                 metrics = {}
 
-                # Benchmark para Alpha e Beta (IBOV)
                 benchmark_ticker = "^BVSP"
                 if benchmark_ticker in df_precos.columns:
-                    benchmark = df_precos[benchmark_ticker].dropna()
+                    benchmark = df_precos[benchmark_ticker]
                     benchmark_retornos = benchmark.pct_change().dropna()
                 else:
                     benchmark = None
@@ -175,13 +174,14 @@ if ativos_str:
                         sharpe = retorno_medio_ano / volatilidade_ano if volatilidade_ano != 0 else np.nan
                         max_drawdown = ((serie / serie.cummax()) - 1).min()
 
-                        # Alpha e Beta
                         if benchmark_retornos is not None:
-                            df_reg = pd.concat([benchmark_retornos, retornos_diarios], axis=1).dropna()
-                            df_reg.columns = ['benchmark', 'ativo']
+                            df_reg = pd.DataFrame({
+                                "benchmark": benchmark_retornos,
+                                "ativo": retornos_diarios
+                            }).dropna()
                             if len(df_reg) > 10:
-                                X = df_reg['benchmark'].values.reshape(-1, 1)
-                                y = df_reg['ativo'].values
+                                X = df_reg["benchmark"].values.reshape(-1, 1)
+                                y = df_reg["ativo"].values
                                 modelo = LinearRegression().fit(X, y)
                                 alpha = modelo.intercept_
                                 beta = modelo.coef_[0]
