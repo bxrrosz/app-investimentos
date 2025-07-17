@@ -1,138 +1,110 @@
 import streamlit as st
-import pandas as pd
 import yfinance as yf
+import pandas as pd
+import numpy as np
+import datetime
 import plotly.graph_objects as go
 import requests
-import numpy as np
 from sklearn.linear_model import LinearRegression
-import datetime
 
-st.set_page_config(layout="wide")
-st.title("💸 Dashboard de Investimentos")
+st.set_page_config(layout="wide", page_title="App de Investimentos")
 
-st.markdown("""
-Este aplicativo permite que você acompanhe sua carteira personalizada de ativos, visualize gráficos de desempenho e analise o sentimento do mercado com o índice de Medo e Ganância.
-""")
+# Função para índice de medo e ganância
+@st.cache_data(ttl=3600)
+def get_fear_and_greed():
+    try:
+        resp = requests.get("https://api.alternative.me/fng/")
+        val = int(resp.json()["data"][0]["value"])
+        txt = resp.json()["data"][0]["value_classification"]
+        return val, txt
+    except:
+        return None, None
 
-abas = st.tabs(["📊 Minha Carteira", "📉 Análise Avançada", "🧠 Medo & Ganância"])
+st.title("💼 Aplicativo de Análise de Investimentos")
 
-# =========================== FUNÇÕES ===========================
-def calcular_metricas(retornos):
-    media = retornos.mean() * 252
-    volatilidade = retornos.std() * np.sqrt(252)
-    sharpe = media / volatilidade if volatilidade != 0 else np.nan
-    retorno_acumulado = (1 + retornos).prod() - 1
-    drawdown = (retornos.cumsum() - retornos.cumsum().cummax()).min()
-    return {
-        "Retorno Acumulado": retorno_acumulado,
-        "Volatilidade": volatilidade,
-        "Sharpe Ratio": sharpe,
-        "Máx. Drawdown": drawdown
+# Sidebar
+st.sidebar.header("Configuração da Carteira")
+ativos = st.sidebar.text_input("Digite os ativos (ex: PETR4.SA, VALE3.SA, AAPL):", value="")
+pesos = st.sidebar.text_input("Pesos (%):", value="50, 50")
+data_inicio = st.sidebar.date_input("Data de início", value=datetime.date(2022, 1, 1))
+
+ativos_lista = [a.strip().upper() for a in nativos.split(",") if a.strip()]
+pesos_lista = [float(p) for p in pesos.split(",") if p.strip()]
+
+if len(ativos_lista) != len(pesos_lista):
+    st.error("O número de ativos e pesos precisa ser igual.")
+    st.stop()
+
+# Dados de preço
+dados = yf.download(ativos_lista, start=data_inicio)["Close"].dropna()
+retornos = dados.pct_change().dropna()
+
+# Normaliza para plot
+precos_normalizados = dados / dados.iloc[0]
+st.subheader("📈 Retorno dos Ativos")
+st.line_chart(precos_normalizados)
+
+# Análise Avançada
+st.subheader("Análise Avançada da Carteira")
+vol = retornos.std() * np.sqrt(252)
+sharpe = retornos.mean() * 252 / vol
+
+ibov = yf.download("^BVSP", start=data_inicio)["Close"].pct_change().reindex(retornos.index).dropna()
+alphas, betas = [], []
+for ativo in retornos.columns:
+    X = ibov.values.reshape(-1, 1)
+    y = retornos[ativo].reindex(ibov.index).dropna()
+    X = X[-len(y):]
+    reg = LinearRegression().fit(X, y)
+    alphas.append(reg.intercept_)
+    betas.append(reg.coef_[0])
+
+drawdowns = (retornos.cumsum() - retornos.cumsum().cummax()).min()
+
+metrics_df = pd.DataFrame({
+    "Volatilidade (%)": (vol * 100).round(2),
+    "Sharpe": sharpe.round(2),
+    "Alpha": np.round(alphas, 5),
+    "Beta": np.round(betas, 5),
+    "Max Drawdown (%)": (drawdowns * 100).round(2)
+})
+
+st.dataframe(metrics_df)
+
+# Composição da Carteira
+st.subheader("💲 Composição da Carteira")
+carteira_valores = {}
+for i, a in enumerate(ativos_lista):
+    carteira_valores[a] = {
+        "peso": pesos_lista[i],
+        "preco_atual": dados[a].iloc[-1],
+        "valor": pesos_lista[i] * dados[a].iloc[-1]
     }
 
-def calcular_alpha_beta(df_precos, benchmark_ticker="^BVSP"):
-    benchmark = yf.download(benchmark_ticker, start=df_precos.index.min(), end=df_precos.index.max())["Close"]
-    benchmark_rets = benchmark.pct_change().dropna()
-    resultados = {}
-    for t in df_precos.columns:
-        rets = df_precos[t].pct_change().dropna()
-        df_merged = pd.concat([rets, benchmark_rets], axis=1).dropna()
-        X = df_merged.iloc[:, 1].values.reshape(-1, 1)
-        y = df_merged.iloc[:, 0].values
-        reg = LinearRegression().fit(X, y)
-        resultados[t] = {"Alpha": reg.intercept_, "Beta": reg.coef_[0]}
-    return pd.DataFrame(resultados).T
+carteira_df = pd.DataFrame(carteira_valores).T
+carteira_df["valor"] = carteira_df["valor"].round(2)
+st.dataframe(carteira_df)
 
-# =========================== ABA 1 - MINHA CARTEIRA ===========================
-with abas[0]:
-    ativos = st.multiselect("Selecione seus ativos", ["PETR4.SA", "VALE3.SA", "ITUB4.SA", "B3SA3.SA", "WEGE3.SA", "MGLU3.SA"], default=["PETR4.SA", "VALE3.SA"])
-    data_inicio = st.date_input("Data de Início", value=datetime.date(2023, 1, 1))
-    df_precos = yf.download(ativos, start=data_inicio)["Close"]
-
-    if not df_precos.empty:
-        df_normalizado = df_precos / df_precos.iloc[0]
-        st.line_chart(df_normalizado, use_container_width=True)
-        st.dataframe(df_precos.tail(), use_container_width=True)
-
-# =========================== ABA 2 - MÉTRICAS AVANÇADAS ===========================
-with abas[1]:
-    if not df_precos.empty:
-        retornos = df_precos.pct_change().dropna()
-
-        st.subheader("📌 Métricas da Carteira")
-        metricas = {ticker: calcular_metricas(retornos[ticker]) for ticker in retornos.columns}
-        st.dataframe(pd.DataFrame(metricas).T.style.format("{:.2%}"))
-
-        st.subheader("📐 Alpha e Beta (em relação ao Ibovespa)")
-        ab = calcular_alpha_beta(df_precos)
-        st.dataframe(ab.style.format("{:.2f}"))
-
-# =========================== ABA 3 - ÍNDICE MEDO E GANÂNCIA ===========================
-with abas[2]:
-    st.header("😨 Índice de Medo e Ganância (CNN Real-Time)")
-
-    st.markdown("""
-    O **Fear & Greed Index** (Índice de Medo e Ganância) é uma medida desenvolvida pela CNN que avalia o sentimento dos investidores no mercado com base em sete indicadores.
-    
-    **Quanto mais próximo de 0, mais medo domina o mercado. Quanto mais perto de 100, mais ganância.**
-
-    Classificações:
-    - 🟥 0 a 24: **Medo Extremo**
-    - 🟧 25 a 49: **Medo**
-    - 🟩 50 a 74: **Ganância**
-    - 🟢 75 a 100: **Ganância Extrema**
-    """)
-
-    try:
-        url = "https://fear-and-greed-index.p.rapidapi.com/v1/fgi"
-        headers = {
-            "X-RapidAPI-Key": "SUA_CHAVE_AQUI",  # Substitua por sua chave
-            "X-RapidAPI-Host": "fear-and-greed-index.p.rapidapi.com"
+# Fear & Greed
+st.subheader("😨 Índice de Medo & Ganância")
+valor_fear, texto_fear = get_fear_and_greed()
+if valor_fear is not None:
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=valor_fear,
+        title={"text": texto_fear},
+        gauge={
+            "axis": {"range": [0, 100]},
+            "bar": {"color": "black"},
+            "steps": [
+                {"range": [0, 25], "color": "red"},
+                {"range": [25, 50], "color": "orange"},
+                {"range": [50, 75], "color": "lightgreen"},
+                {"range": [75, 100], "color": "green"}
+            ]
         }
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            data = response.json()
-            fgi = data["fgi"]
-            indice_atual = int(fgi["now"]["value"])
-            classificacao_atual = fgi["now"]["valueText"]
-
-            historico = {
-                "Ontem": (fgi["previousClose"]["value"], fgi["previousClose"]["valueText"]),
-                "Semana passada": (fgi["oneWeekAgo"]["value"], fgi["oneWeekAgo"]["valueText"]),
-                "Um mês atrás": (fgi["oneMonthAgo"]["value"], fgi["oneMonthAgo"]["valueText"]),
-                "Um ano atrás": (fgi["oneYearAgo"]["value"], fgi["oneYearAgo"]["valueText"]),
-            }
-
-            fig = go.Figure(go.Indicator(
-                mode="gauge+number",
-                value=indice_atual,
-                title={'text': f"Índice Atual: {classificacao_atual}"},
-                gauge={
-                    'axis': {'range': [0, 100]},
-                    'bar': {'color': "black"},
-                    'steps': [
-                        {'range': [0, 25], 'color': "red"},
-                        {'range': [25, 50], 'color': "orange"},
-                        {'range': [50, 75], 'color': "lightgreen"},
-                        {'range': [75, 100], 'color': "green"}
-                    ]
-                }
-            ))
-            fig.update_layout(height=300)
-            st.plotly_chart(fig, use_container_width=True)
-
-            st.subheader("🕓 Histórico Recente")
-            col1, col2 = st.columns(2)
-            with col1:
-                for label in ["Ontem", "Semana passada"]:
-                    valor, texto = historico[label]
-                    st.metric(label=label, value=f"{valor}", help=f"{texto}")
-            with col2:
-                for label in ["Um mês atrás", "Um ano atrás"]:
-                    valor, texto = historico[label]
-                    st.metric(label=label, value=f"{valor}", help=f"{texto}")
-
-        else:
-            st.error("Erro ao obter índice. Verifique sua chave da RapidAPI.")
-    except Exception as e:
-        st.error(f"Erro ao buscar o índice: {e}")
+    ))
+    fig.update_layout(height=300)
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.warning("Não foi possível carregar o índice de medo e ganância.")
