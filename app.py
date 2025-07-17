@@ -12,23 +12,22 @@ warnings.filterwarnings("ignore")
 st.set_page_config(page_title="App Investimentos", page_icon="💰", layout="wide")
 st.markdown("# 💰 Analisador Simples de Investimentos")
 
-# Função para buscar o índice real de medo e ganância da CNN
+# Função para buscar o índice de medo e ganância (crypto fear and greed) - alternative.me
 @st.cache_data(ttl=3600)
-def get_fear_and_greed_cnn():
+def get_fear_and_greed_index():
     try:
-        url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
+        url = "https://api.alternative.me/fng/"
         response = requests.get(url).json()
-        # A resposta tem várias séries, a principal é 'fear_and_greed_index' -> última data é valor atual
-        value = int(response["fear_and_greed_index"][-1]["value"])
+        value = int(response['data'][0]['value'])
         return value
-    except Exception as e:
+    except Exception:
         return None
 
 def plot_fear_greed_gauge(value):
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
         value=value,
-        title={'text': "Índice de Medo e Ganância (CNN)"},
+        title={'text': "Índice de Medo e Ganância (Crypto)"},
         gauge={
             'axis': {'range': [0, 100]},
             'bar': {'color': "black"},
@@ -106,11 +105,10 @@ if ativos_str:
             usd_brl_series = usd_brl if isinstance(usd_brl, pd.Series) else usd_brl.iloc[:, 0]
             usd_brl_series = usd_brl_series.reindex(df_precos.index).fillna(method="ffill").fillna(method="bfill")
             for t in df_precos.columns:
-                if not t.endswith(".SA"):
+                if not t.endswith(".SA, =X"):
                     df_precos[t] = df_precos[t] * usd_brl_series
             st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
 
-        # Aba para escolher o modo: Análise ou Previsão
         aba = st.radio("Escolha a aba:", ["Análise de Preços", "Previsão com ARIMA"])
 
         if aba == "Análise de Preços":
@@ -135,13 +133,12 @@ if ativos_str:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-            # Colunas: métricas avançadas e carteira lado a lado
             col1, col2 = st.columns([2, 1])
 
             with col1:
                 st.subheader("📊 Métricas Financeiras Avançadas")
 
-                # Para alpha e beta, usar o primeiro ativo como benchmark (se possível)
+                # Benchmark para cálculo de alpha e beta: usar o primeiro ativo da lista
                 benchmark_name = tickers[0]
                 benchmark = df_precos[benchmark_name].dropna() if benchmark_name in df_precos.columns else None
 
@@ -155,13 +152,16 @@ if ativos_str:
                     sharpe = retorno_medio_ano / volatilidade_ano if volatilidade_ano != 0 else np.nan
                     max_drawdown = ((serie / serie.cummax()) - 1).min()
 
-                    # Cálculo alpha e beta com benchmark
-                    if benchmark is not None and t != benchmark_name:
-                        benchmark_retornos = benchmark.pct_change().dropna()
-                        df_reg = pd.DataFrame({"x": benchmark_retornos, "y": retornos_diarios}).dropna()
-                        if len(df_reg) > 1:
-                            X = df_reg[["x"]].values
-                            y = df_reg["y"].values
+                    # Calcular alpha e beta mesmo para internacionais, usando merge de retornos alinhados
+                    if benchmark is not None:
+                        benchmark_retornos = benchmark.pct_change()
+                        ativo_retornos = serie.pct_change()
+                        df_merge = pd.concat([benchmark_retornos, ativo_retornos], axis=1).dropna()
+                        df_merge.columns = ['benchmark', 'ativo']
+
+                        if len(df_merge) > 1:
+                            X = df_merge[['benchmark']].values
+                            y = df_merge['ativo'].values
                             modelo = LinearRegression().fit(X, y)
                             alpha = modelo.intercept_
                             beta = modelo.coef_[0]
@@ -247,13 +247,13 @@ if ativos_str:
                     "Lucro/Prejuízo (%)": "{:.2%}",
                 }))
 
-                # Mostrar índice de medo e ganância CNN embaixo da carteira
-                fg_value = get_fear_and_greed_cnn()
+                # Mostrar índice de medo e ganância crypto (alternative.me)
+                fg_value = get_fear_and_greed_index()
                 if fg_value is not None:
-                    st.subheader("🚀 Índice de Medo e Ganância (CNN)")
+                    st.subheader("🚀 Índice de Medo e Ganância (Crypto)")
                     st.plotly_chart(plot_fear_greed_gauge(fg_value), use_container_width=True)
                 else:
-                    st.warning("Não foi possível obter o índice de medo e ganância (CNN).")
+                    st.warning("Não foi possível obter o índice de medo e ganância (Crypto).")
 
         elif aba == "Previsão com ARIMA":
             st.subheader("📅 Previsão com ARIMA para um ativo selecionado")
