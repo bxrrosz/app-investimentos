@@ -57,7 +57,7 @@ periodo = st.selectbox(
     format_func=lambda x: x[0]
 )
 
-# Entrada de ativos com exemplo preenchido
+# Entrada de ativos
 ativos_str = st.text_input(
     "Digite os tickers da bolsa separados por vírgula",
     value="",
@@ -85,12 +85,10 @@ if ativos_str:
         if isinstance(df_precos.columns, pd.MultiIndex):
             df_precos.columns = df_precos.columns.droplevel(0)
 
-        # Preencher índice com datas contínuas para evitar intervalos vazios no gráfico
         full_index = pd.date_range(start=df_precos.index.min(), end=df_precos.index.max(), freq='B')
         df_precos = df_precos.reindex(full_index)
         df_precos = df_precos.fillna(method='ffill').fillna(method='bfill')
 
-        # Baixa taxa USD-BRL para o período escolhido
         try:
             usd_brl = yf.download("USDBRL=X", period=periodo[1], progress=False)["Close"]
             if usd_brl.empty:
@@ -100,13 +98,11 @@ if ativos_str:
             usd_brl = None
             st.warning(f"Erro ao carregar taxa de câmbio USDBRL: {e}")
 
-        # Converte os ativos internacionais para BRL
         if usd_brl is not None:
             usd_brl_series = usd_brl if isinstance(usd_brl, pd.Series) else usd_brl.iloc[:, 0]
             usd_brl_series = usd_brl_series.reindex(df_precos.index).fillna(method="ffill").fillna(method="bfill")
 
             for t in df_precos.columns:
-                # Ignorar ativos que terminam com .SA (BR) e que terminam com '=X' (câmbios)
                 if not t.endswith(".SA") and not t.endswith("=X"):
                     df_precos[t] = df_precos[t] * usd_brl_series
 
@@ -145,11 +141,8 @@ if ativos_str:
             col1, col2 = st.columns([2, 1])
 
             with col1:
-                st.subheader("📊 Métricas Financeiras")
+                st.subheader("📊 Métricas Financeiras Básicas")
 
-                modo_avancado = st.checkbox("Modo Avançado", value=True)
-
-                # Benchmark para cálculo de alpha e beta: usar o primeiro ativo da lista
                 benchmark_name = tickers[0]
                 benchmark = df_precos[benchmark_name].dropna() if benchmark_name in df_precos.columns else None
 
@@ -191,44 +184,39 @@ if ativos_str:
 
                 df_metrics = pd.DataFrame(metrics).T
 
-                # Tooltips para explicação nas colunas (modo avançado)
+                df_basicas = df_metrics[["Retorno Total (%)", "Sharpe"]]
+                st.dataframe(df_basicas)
+
+                st.markdown("---")
+                st.subheader("📊 Métricas Financeiras Avançadas")
+
                 tooltips = {
-                    "Retorno Total (%)": "Diferença percentual entre o preço final e inicial.",
                     "Volatilidade Anualizada (%)": "Medida do risco baseada na variação diária anualizada.",
-                    "Sharpe": "Retorno adicional por unidade de risco (quanto maior, melhor).",
                     "Max Drawdown": "Maior perda em relação ao pico anterior.",
                     "Alpha": "Excesso de retorno em relação ao benchmark.",
                     "Beta": "Sensibilidade do ativo em relação ao benchmark (risco sistemático)."
                 }
 
-                if modo_avancado:
-                    # Gerar HTML da tabela com tooltips nas colunas (usando title no <th>)
-                    def generate_tooltip_table(df, tips):
-                        html = '<table border="1" style="border-collapse:collapse; width:100%;">'
-                        # Cabeçalho
-                        html += "<thead><tr><th>Ativo</th>"
+                def generate_tooltip_table(df, tips):
+                    html = '<table border="1" style="border-collapse:collapse; width:100%;">'
+                    html += "<thead><tr><th>Ativo</th>"
+                    for col in df.columns:
+                        tooltip = tips.get(col, "")
+                        html += f'<th title="{tooltip}">{col}</th>'
+                    html += "</tr></thead>"
+
+                    html += "<tbody>"
+                    for idx, row in df.iterrows():
+                        html += f"<tr><td>{idx}</td>"
                         for col in df.columns:
-                            tooltip = tips.get(col, "")
-                            html += f'<th title="{tooltip}">{col}</th>'
-                        html += "</tr></thead>"
+                            html += f"<td>{row[col]}</td>"
+                        html += "</tr>"
+                    html += "</tbody></table>"
+                    return html
 
-                        # Corpo
-                        html += "<tbody>"
-                        for idx, row in df.iterrows():
-                            html += f"<tr><td>{idx}</td>"
-                            for col in df.columns:
-                                html += f"<td>{row[col]}</td>"
-                            html += "</tr>"
-                        html += "</tbody></table>"
-                        return html
-
-                    html_table = generate_tooltip_table(df_metrics, tooltips)
-                    st.markdown(html_table, unsafe_allow_html=True)
-
-                else:
-                    # Modo iniciante: tabela simplificada só com Retorno Total (%) e Sharpe
-                    df_simples = df_metrics[["Retorno Total (%)", "Sharpe"]]
-                    st.dataframe(df_simples)
+                df_avancadas = df_metrics[["Volatilidade Anualizada (%)", "Max Drawdown", "Alpha", "Beta"]]
+                html_table = generate_tooltip_table(df_avancadas, tooltips)
+                st.markdown(html_table, unsafe_allow_html=True)
 
             with col2:
                 st.subheader("🧮 Simulador de Carteira")
@@ -296,7 +284,6 @@ if ativos_str:
                     "Lucro/Prejuízo (%)": "{:.2%}",
                 }))
 
-                # Mostrar índice de medo e ganância crypto (alternative.me)
                 fg_value = get_fear_and_greed_index()
                 if fg_value is not None:
                     st.subheader("🚀 Índice de Medo e Ganância (Crypto)")
@@ -367,4 +354,3 @@ if ativos_str:
                     st.plotly_chart(fig, use_container_width=True)
                 except Exception as e:
                     st.error(f"Erro ao calcular previsão ARIMA: {e}")
-
