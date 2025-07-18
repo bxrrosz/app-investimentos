@@ -139,6 +139,76 @@ if ativos_str:
             )
             st.plotly_chart(fig, use_container_width=True)
 
+            # --- MÉTRICAS BÁSICAS E AVANÇADAS COM EXPLICAÇÕES ---
+            st.markdown("---")
+            st.subheader("📊 Métricas Financeiras Básicas e Avançadas")
+
+            benchmark_name = tickers[0]
+            benchmark = df_precos[benchmark_name].dropna() if benchmark_name in df_precos.columns else None
+
+            metrics = {}
+            for t in df_precos.columns:
+                serie = df_precos[t].dropna()
+                retornos_diarios = serie.pct_change().dropna()
+                retorno_total = (serie.iloc[-1] / serie.iloc[0]) - 1
+                retorno_medio_ano = retornos_diarios.mean() * 252
+                volatilidade_ano = retornos_diarios.std() * np.sqrt(252)
+                sharpe = retorno_medio_ano / volatilidade_ano if volatilidade_ano != 0 else np.nan
+                max_drawdown = ((serie / serie.cummax()) - 1).min()
+
+                if benchmark is not None:
+                    benchmark_retornos = benchmark.pct_change()
+                    ativo_retornos = serie.pct_change()
+                    df_merge = pd.concat([benchmark_retornos, ativo_retornos], axis=1).dropna()
+                    df_merge.columns = ['benchmark', 'ativo']
+
+                    if len(df_merge) > 1:
+                        X = df_merge[['benchmark']].values
+                        y = df_merge['ativo'].values
+                        modelo = LinearRegression().fit(X, y)
+                        alpha = modelo.intercept_
+                        beta = modelo.coef_[0]
+                    else:
+                        alpha = beta = np.nan
+                else:
+                    alpha = beta = np.nan
+
+                metrics[t] = {
+                    "Retorno Total (%)": f"{retorno_total:.2%}",
+                    "Volatilidade Anualizada (%)": f"{volatilidade_ano:.2%}",
+                    "Sharpe": f"{sharpe:.2f}" if not np.isnan(sharpe) else "N/A",
+                    "Max Drawdown": f"{max_drawdown:.2%}",
+                    "Alpha": f"{alpha:.4f}" if not np.isnan(alpha) else "N/A",
+                    "Beta": f"{beta:.4f}" if not np.isnan(beta) else "N/A",
+                }
+
+            df_metrics = pd.DataFrame(metrics).T
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.markdown("""
+                **Explicações das Métricas Básicas:**  
+                - **Retorno Total (%)**: Diferença percentual entre o preço final e inicial do ativo.  
+                - **Sharpe**: Índice que mede o retorno ajustado pelo risco (quanto maior, melhor).  
+                """)
+                df_basicas = df_metrics[["Retorno Total (%)", "Sharpe"]]
+                st.dataframe(df_basicas)
+
+            with col2:
+                st.markdown("""
+                **Explicações das Métricas Avançadas:**  
+                - **Volatilidade Anualizada (%)**: Medida da variação dos retornos diária, anualizada; indica risco do ativo.  
+                - **Max Drawdown**: Maior queda percentual do pico máximo até o ponto mais baixo no período.  
+                - **Alpha**: Excesso de retorno do ativo em relação ao benchmark, indicando habilidade do gestor.  
+                - **Beta**: Sensibilidade do ativo em relação ao benchmark; risco sistemático.  
+                """)
+                df_avancadas = df_metrics[["Volatilidade Anualizada (%)", "Max Drawdown", "Alpha", "Beta"]]
+                st.dataframe(df_avancadas)
+
+            st.markdown("---")
+            # --- FIM DAS MÉTRICAS ---
+
             # COLUNAS PARA INPUTS
             col_carteira, col_lateral = st.columns([3, 1])
 
