@@ -327,19 +327,21 @@ if soma_pesos == 100:
         margin=dict(t=40, b=40, l=40, r=40)
     )
 
-col_graf, col_fg = st.columns([3, 1], gap="medium")
+st.markdown("### 📉 Evolução da Carteira vs Índice de Medo e Ganância")
+col_grafico, col_indice = st.columns([3, 1], gap="medium")
 
-with col_graf:
+with col_grafico:
     if fig_carteira is not None:
         st.plotly_chart(fig_carteira, use_container_width=True)
     else:
         st.info("Informe pesos que somem 100% para visualizar o gráfico da carteira.")
 
-with col_fg:
+with col_indice:
     if fg_value is not None:
         st.plotly_chart(plot_fear_greed_gauge(fg_value), use_container_width=True)
     else:
         st.warning("Não foi possível obter o índice de medo e ganância (Crypto).")
+
 
 
         elif aba == "Previsão com ARIMA":
