@@ -139,9 +139,8 @@ if ativos_str:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-            # DUAS COLUNAS: Carteira + Pesos + Índice Medo e Ganância
-
-            col_carteira, col_pesos = st.columns([3, 1])
+            # COLUNAS PARA INPUTS
+            col_carteira, col_lateral = st.columns([3, 1])
 
             with col_carteira:
                 st.subheader("🧮 Simulador de Carteira")
@@ -196,7 +195,7 @@ if ativos_str:
                     "Lucro/Prejuízo (%)": "{:.2%}",
                 }))
 
-            with col_pesos:
+            with col_lateral:
                 st.subheader("⚖️ Pesos na Carteira (%)")
                 pesos = {}
                 soma_pesos = 0.0
@@ -222,65 +221,64 @@ if ativos_str:
                     beta = modelo.coef_[0]
 
                     st.markdown("### 📈 Resultados da Carteira com Pesos")
-
                     st.write(f"- **Retorno Total:** {retorno_total:.2%}")
                     st.write(f"- **Volatilidade Anualizada:** {volatilidade_ano:.2%}")
                     st.write(f"- **Alpha:** {alpha:.4f}")
                     st.write(f"- **Beta:** {beta:.4f}")
-
-                    valor_carteira = (1 + retorno_carteira_diario).cumprod()
-
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatter(
-                        x=valor_carteira.index,
-                        y=valor_carteira.values,
-                        mode='lines',
-                        name='Carteira'
-                    ))
-
-                    for t in df_precos.columns:
-                        retorno_ativo = (1 + retornos_diarios[t]).cumprod()
-                        fig.add_trace(go.Scatter(
-                            x=retorno_ativo.index,
-                            y=retorno_ativo.values,
-                            mode='lines',
-                            name=t,
-                            line=dict(dash='dot'),
-                            opacity=0.6
-                        ))
-
-                    fig.update_layout(
-                        title="Evolução da Carteira e dos Ativos",
-                        xaxis_title="Data",
-                        yaxis_title="Valor Acumulado (Índice)",
-                        legend_title_text="Ativos / Carteira",
-                        template="plotly_white",
-                        height=500
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-
-                    corr = retornos_diarios.corr()
-
-                    st.markdown("### 🔍 Matriz de Correlação entre Ativos")
-
-                    fig_corr = px.imshow(
-                        corr,
-                        text_auto=True,
-                        color_continuous_scale='RdBu_r',
-                        origin='lower',
-                        title='Matriz de Correlação dos Retornos Diários'
-                    )
-                    st.plotly_chart(fig_corr, use_container_width=True)
                 else:
                     st.warning(f"A soma dos pesos é {soma_pesos:.2f}%. Ela deve ser exatamente 100%. Ajuste os pesos.")
 
-                # Índice de Medo e Ganância (crypto) na lateral da mesma coluna dos pesos
                 fg_value = get_fear_and_greed_index()
                 if fg_value is not None:
                     st.subheader("🚀 Índice de Medo e Ganância (Crypto)")
                     st.plotly_chart(plot_fear_greed_gauge(fg_value), use_container_width=True)
                 else:
                     st.warning("Não foi possível obter o índice de medo e ganância (Crypto).")
+
+            # GRÁFICO DA EVOLUÇÃO DA CARTEIRA E ATIVOS ABAIXO DAS COLUNAS
+            if soma_pesos == 100:
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=retorno_carteira_diario.index,
+                    y=(1 + retorno_carteira_diario).cumprod(),
+                    mode='lines',
+                    name='Carteira'
+                ))
+
+                for t in df_precos.columns:
+                    retorno_ativo = (1 + df_precos[t].pct_change().dropna()).cumprod()
+                    fig.add_trace(go.Scatter(
+                        x=retorno_ativo.index,
+                        y=retorno_ativo.values,
+                        mode='lines',
+                        name=t,
+                        line=dict(dash='dot'),
+                        opacity=0.6
+                    ))
+
+                fig.update_layout(
+                    title="Evolução da Carteira e dos Ativos",
+                    xaxis_title="Data",
+                    yaxis_title="Valor Acumulado (Índice)",
+                    legend_title_text="Ativos / Carteira",
+                    template="plotly_white",
+                    height=500,
+                    margin=dict(t=40, b=40, l=40, r=40)
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+                corr = df_precos.pct_change().dropna().corr()
+
+                st.markdown("### 🔍 Matriz de Correlação entre Ativos")
+
+                fig_corr = px.imshow(
+                    corr,
+                    text_auto=True,
+                    color_continuous_scale='RdBu_r',
+                    origin='lower',
+                    title='Matriz de Correlação dos Retornos Diários'
+                )
+                st.plotly_chart(fig_corr, use_container_width=True)
 
         elif aba == "Previsão com ARIMA":
             st.subheader("📅 Previsão com ARIMA para um ativo selecionado")
