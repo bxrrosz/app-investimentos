@@ -331,7 +331,7 @@ if ativos_str:
 
                 with col_graf:
                     if fig_carteira is not None:
-                        st.plotly_chart(fig_carteira, use_container_width=True)
+                        st.plotly_chart(fig_carteira, use_container_width=False, width=800, height=400)
                     else:
                         st.info("Informe pesos que somem 100% para visualizar o gráfico da carteira.")
 
