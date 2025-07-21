@@ -139,9 +139,8 @@ if ativos_str:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-            # --- MÉTRICAS BÁSICAS E AVANÇADAS COM EXPLICAÇÕES ---
             st.markdown("---")
-            st.subheader("📊 Métricas Financeiras Básicas e Avançadas")
+            st.subheader("📊 Métricas Financeiras Básicas")
 
             benchmark_name = tickers[0]
             benchmark = df_precos[benchmark_name].dropna() if benchmark_name in df_precos.columns else None
@@ -184,32 +183,28 @@ if ativos_str:
 
             df_metrics = pd.DataFrame(metrics).T
 
-            col1, col2 = st.columns(2)
+            # Métricas básicas
+            st.markdown("""
+            **Explicações das Métricas Básicas:**  
+            - **Retorno Total (%)**: Diferença percentual entre o preço final e inicial do ativo.  
+            - **Sharpe**: Índice que mede o retorno ajustado pelo risco (quanto maior, melhor).  
+            """)
+            df_basicas = df_metrics[["Retorno Total (%)", "Sharpe"]]
+            st.dataframe(df_basicas)
 
-            with col1:
-                st.markdown("""
-                **Explicações das Métricas Básicas:**  
-                - **Retorno Total (%)**: Diferença percentual entre o preço final e inicial do ativo.  
-                - **Sharpe**: Índice que mede o retorno ajustado pelo risco (quanto maior, melhor).  
-                """)
-                df_basicas = df_metrics[["Retorno Total (%)", "Sharpe"]]
-                st.dataframe(df_basicas)
-
-            with col2:
-                st.markdown("""
-                **Explicações das Métricas Avançadas:**  
-                - **Volatilidade Anualizada (%)**: Medida da variação dos retornos diária, anualizada; indica risco do ativo.  
-                - **Max Drawdown**: Maior queda percentual do pico máximo até o ponto mais baixo no período.  
-                - **Alpha**: Excesso de retorno do ativo em relação ao benchmark, indicando habilidade do gestor.  
-                - **Beta**: Sensibilidade do ativo em relação ao benchmark; risco sistemático.  
-                """)
-                df_avancadas = df_metrics[["Volatilidade Anualizada (%)", "Max Drawdown", "Alpha", "Beta"]]
-                st.dataframe(df_avancadas)
+            # Métricas avançadas
+            st.markdown("""
+            **Explicações das Métricas Avançadas:**  
+            - **Volatilidade Anualizada (%)**: Medida da variação dos retornos diária, anualizada; indica risco do ativo.  
+            - **Max Drawdown**: Maior queda percentual do pico máximo até o ponto mais baixo no período.  
+            - **Alpha**: Excesso de retorno do ativo em relação ao benchmark, indicando habilidade do gestor.  
+            - **Beta**: Sensibilidade do ativo em relação ao benchmark; risco sistemático.  
+            """)
+            df_avancadas = df_metrics[["Volatilidade Anualizada (%)", "Max Drawdown", "Alpha", "Beta"]]
+            st.dataframe(df_avancadas)
 
             st.markdown("---")
-            # --- FIM DAS MÉTRICAS ---
 
-            # COLUNAS PARA INPUTS
             col_carteira, col_lateral = st.columns([3, 1])
 
             with col_carteira:
@@ -298,9 +293,10 @@ if ativos_str:
                 else:
                     st.warning(f"A soma dos pesos é {soma_pesos:.2f}%. Ela deve ser exatamente 100%. Ajuste os pesos.")
 
-              
+                fg_value = get_fear_and_greed_index()
 
-            # GRÁFICO DA EVOLUÇÃO DA CARTEIRA E ATIVOS ABAIXO DAS COLUNAS
+                # Layout lado a lado para gráfico da carteira e índice de medo e ganância
+                   # GRÁFICO DA EVOLUÇÃO DA CARTEIRA E ATIVOS ABAIXO DAS COLUNAS
             if soma_pesos == 100:
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(
