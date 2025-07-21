@@ -335,11 +335,7 @@ if ativos_str:
                     else:
                         st.info("Informe pesos que somem 100% para visualizar o gráfico da carteira.")
 
-                with col_fg:
-                    if fg_value is not None:
-                        st.plotly_chart(plot_fear_greed_gauge(fg_value), use_container_width=True, height=350)
-                    else:
-                        st.warning("Não foi possível obter o índice de medo e ganância (Crypto).")
+            
 
         elif aba == "Previsão com ARIMA":
             st.subheader("📅 Previsão com ARIMA para um ativo selecionado")
