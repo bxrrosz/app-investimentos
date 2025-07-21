@@ -293,53 +293,54 @@ if ativos_str:
                 else:
                     st.warning(f"A soma dos pesos é {soma_pesos:.2f}%. Ela deve ser exatamente 100%. Ajuste os pesos.")
 
-                                fg_value = get_fear_and_greed_index()
+                fg_value = get_fear_and_greed_index()
 
                 # Layout lado a lado para gráfico da carteira e índice de medo e ganância
                 fig_carteira = None
-                if soma_pesos == 100:
-                    fig_carteira = go.Figure()
-                    fig_carteira.add_trace(go.Scatter(
-                        x=retorno_carteira_diario.index,
-                        y=(1 + retorno_carteira_diario).cumprod(),
-                        mode='lines',
-                        name='Carteira'
-                    ))
+if soma_pesos == 100:
+    fig_carteira = go.Figure()
+    fig_carteira.add_trace(go.Scatter(
+        x=retorno_carteira_diario.index,
+        y=(1 + retorno_carteira_diario).cumprod(),
+        mode='lines',
+        name='Carteira'
+    ))
 
-                    for t in df_precos.columns:
-                        retorno_ativo = (1 + df_precos[t].pct_change().dropna()).cumprod()
-                        fig_carteira.add_trace(go.Scatter(
-                            x=retorno_ativo.index,
-                            y=retorno_ativo.values,
-                            mode='lines',
-                            name=t,
-                            line=dict(dash='dot'),
-                            opacity=0.6
-                        ))
+    for t in df_precos.columns:
+        retorno_ativo = (1 + df_precos[t].pct_change().dropna()).cumprod()
+        fig_carteira.add_trace(go.Scatter(
+            x=retorno_ativo.index,
+            y=retorno_ativo.values,
+            mode='lines',
+            name=t,
+            line=dict(dash='dot'),
+            opacity=0.6
+        ))
 
-                    fig_carteira.update_layout(
-                        title="Evolução da Carteira e dos Ativos",
-                        xaxis_title="Data",
-                        yaxis_title="Valor Acumulado (Índice)",
-                        legend_title_text="Ativos / Carteira",
-                        template="plotly_white",
-                        height=350,
-                        margin=dict(t=40, b=40, l=40, r=40)
-                    )
+    fig_carteira.update_layout(
+        title="Evolução da Carteira e dos Ativos",
+        xaxis_title="Data",
+        yaxis_title="Valor Acumulado (Índice)",
+        legend_title_text="Ativos / Carteira",
+        template="plotly_white",
+        height=350,
+        margin=dict(t=40, b=40, l=40, r=40)
+    )
 
-                col_graf, col_fg = st.columns([3, 1], gap="medium")
+col_graf, col_fg = st.columns([3, 1], gap="medium")
 
-                with col_graf:
-                    if fig_carteira is not None:
-                        st.plotly_chart(fig_carteira, use_container_width=True)
-                    else:
-                        st.info("Informe pesos que somem 100% para visualizar o gráfico da carteira.")
+with col_graf:
+    if fig_carteira is not None:
+        st.plotly_chart(fig_carteira, use_container_width=True)
+    else:
+        st.info("Informe pesos que somem 100% para visualizar o gráfico da carteira.")
 
-                with col_fg:
-                    if fg_value is not None:
-                        st.plotly_chart(plot_fear_greed_gauge(fg_value), use_container_width=True)
-                    else:
-                        st.warning("Não foi possível obter o índice de medo e ganância (Crypto).")
+with col_fg:
+    if fg_value is not None:
+        st.plotly_chart(plot_fear_greed_gauge(fg_value), use_container_width=True)
+    else:
+        st.warning("Não foi possível obter o índice de medo e ganância (Crypto).")
+
 
         elif aba == "Previsão com ARIMA":
             st.subheader("📅 Previsão com ARIMA para um ativo selecionado")
