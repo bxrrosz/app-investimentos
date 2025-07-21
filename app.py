@@ -327,9 +327,9 @@ if ativos_str:
                         margin=dict(t=40, b=40, l=40, r=40)
                     )
 
-                col_graf, col_fg = st.columns([1,5])
+                
 
-                with col_graf:
+                
                     if fig_carteira is not None:
                         st.plotly_chart(fig_carteira, use_container_width=False, width=800, height=400)
                     else:
