@@ -337,7 +337,7 @@ if ativos_str:
 
                 with col_fg:
                     if fg_value is not None:
-                        st.plotly_chart(plot_fear_greed_gauge(fg_value), use_container_width=True, height=350)
+                        st.plotly_chart(plot_fear_greed_gauge(fg_value), use_container_width=True)
                     else:
                         st.warning("Não foi possível obter o índice de medo e ganância (Crypto).")
 
