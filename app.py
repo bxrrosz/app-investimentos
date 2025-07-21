@@ -324,7 +324,7 @@ if ativos_str:
                         legend_title_text="Ativos / Carteira",
                         template="plotly_white",
                         height=350,
-                        margin=dict(t=40, b=40, l=40, r=40)
+                        margin=dict(t=20, b=20, l=40, r=40)
                     )
 
                 col_graf, col_fg = st.columns([3,1])
