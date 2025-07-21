@@ -298,12 +298,7 @@ if ativos_str:
                 else:
                     st.warning(f"A soma dos pesos é {soma_pesos:.2f}%. Ela deve ser exatamente 100%. Ajuste os pesos.")
 
-                fg_value = get_fear_and_greed_index()
-                if fg_value is not None:
-                    st.subheader("🚀 Índice de Medo e Ganância (Crypto)")
-                    st.plotly_chart(plot_fear_greed_gauge(fg_value), use_container_width=True)
-                else:
-                    st.warning("Não foi possível obter o índice de medo e ganância (Crypto).")
+              
 
             # GRÁFICO DA EVOLUÇÃO DA CARTEIRA E ATIVOS ABAIXO DAS COLUNAS
             if soma_pesos == 100:
