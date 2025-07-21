@@ -327,15 +327,40 @@ if ativos_str:
                         margin=dict(t=40, b=40, l=40, r=40)
                     )
 
-                
+               if soma_pesos == 100:
+    fig_carteira = go.Figure()
+    fig_carteira.add_trace(go.Scatter(
+        x=retorno_carteira_diario.index,
+        y=(1 + retorno_carteira_diario).cumprod(),
+        mode='lines',
+        name='Carteira'
+    ))
 
-                
-                    if fig_carteira is not None:
-                        st.plotly_chart(fig_carteira, use_container_width=False, width=800, height=400)
-                    else:
-                        st.info("Informe pesos que somem 100% para visualizar o gráfico da carteira.")
+    for t in df_precos.columns:
+        retorno_ativo = (1 + df_precos[t].pct_change().dropna()).cumprod()
+        fig_carteira.add_trace(go.Scatter(
+            x=retorno_ativo.index,
+            y=retorno_ativo.values,
+            mode='lines',
+            name=t,
+            line=dict(dash='dot'),
+            opacity=0.6
+        ))
 
-            
+    fig_carteira.update_layout(
+        title="Evolução da Carteira e dos Ativos",
+        xaxis_title="Data",
+        yaxis_title="Valor Acumulado (Índice)",
+        legend_title_text="Ativos / Carteira",
+        template="plotly_white",
+        height=400,
+        margin=dict(t=30, b=30, l=30, r=30)
+    )
+
+    st.markdown("### 📈 Gráfico de Evolução da Carteira")
+    st.plotly_chart(fig_carteira, use_container_width=False, width=700)
+else:
+    st.info("Informe pesos que somem 100% para visualizar o gráfico da carteira.")
 
         elif aba == "Previsão com ARIMA":
             st.subheader("📅 Previsão com ARIMA para um ativo selecionado")
