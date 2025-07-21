@@ -327,7 +327,7 @@ if ativos_str:
                         margin=dict(t=40, b=40, l=40, r=40)
                     )
 
-                col_graf, col_fg = st.columns([2,3])
+                col_graf, col_fg = st.columns([1,5])
 
                 with col_graf:
                     if fig_carteira is not None:
