@@ -10,8 +10,8 @@ import requests
 import warnings
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="App Investimentos", page_icon="💰", layout="wide")
-st.markdown("# 💰 Analisador Simples de Investimentos")
+st.set_page_config(page_title="App Investimentos_beta", page_icon="💰", layout="wide")
+st.markdown("análise simples de investimento")
 
 # Função para buscar o índice de medo e ganância (crypto fear and greed) - alternative.me
 @st.cache_data(ttl=3600)
@@ -107,12 +107,12 @@ if ativos_str:
                 if not t.endswith(".SA") and not t.endswith("=X"):
                     df_precos[t] = df_precos[t] * usd_brl_series
 
-            st.info("Ativos internacionais convertidos para BRL usando taxa USDBRL.")
+            st.info("Ativos internacionais convertidos para BRL.")
 
-        aba = st.radio("Escolha a aba:", ["Análise de Preços", "Previsão com ARIMA"])
+        aba = st.radio("Escolha a aba:", ["Análise histórica de Preços", "Previsão com ARIMA"])
 
-        if aba == "Análise de Preços":
-            st.subheader(f"📈 Gráfico Interativo de Preços Ajustados ({periodo[0]})")
+        if aba == "Análise histórica de Preços":
+            st.subheader(f"📈 Gráfico de Preços Ajustados ({periodo[0]})")
 
             fig = go.Figure()
             for t in df_precos.columns:
@@ -140,7 +140,7 @@ if ativos_str:
             st.plotly_chart(fig, use_container_width=True)
 
             st.markdown("---")
-            st.subheader("📊 Métricas Financeiras Básicas")
+            st.subheader("Métricas Básicas")
 
             benchmark_name = tickers[0]
             benchmark = df_precos[benchmark_name].dropna() if benchmark_name in df_precos.columns else None
@@ -208,7 +208,7 @@ if ativos_str:
             col_carteira, col_lateral = st.columns([3, 1])
 
             with col_carteira:
-                st.subheader("🧮 Simulador de Carteira")
+                st.subheader("Minha Carteira")
                 st.write("Informe quantidades e preços médios para calcular retorno.")
 
                 carteira = {}
@@ -261,7 +261,7 @@ if ativos_str:
                 }))
 
             with col_lateral:
-                st.subheader("⚖️ Pesos na Carteira (%)")
+                st.subheader("Pesos na Carteira (%)")
                 pesos = {}
                 soma_pesos = 0.0
                 for t in tickers:
@@ -285,7 +285,7 @@ if ativos_str:
                     alpha = modelo.intercept_
                     beta = modelo.coef_[0]
 
-                    st.markdown("### 📈 Resultados da Carteira com Pesos")
+                    st.markdown("### Resultados da Carteira com Pesos")
                     st.write(f"- **Retorno Total:** {retorno_total:.2%}")
                     st.write(f"- **Volatilidade Anualizada:** {volatilidade_ano:.2%}")
                     st.write(f"- **Alpha:** {alpha:.4f}")
@@ -318,7 +318,7 @@ if ativos_str:
                     ))
 
                 fig.update_layout(
-                    title="Evolução da Carteira e dos Ativos",
+                    title="Evolução da Carteira",
                     xaxis_title="Data",
                     yaxis_title="Valor Acumulado (Índice)",
                     legend_title_text="Ativos / Carteira",
