@@ -13,7 +13,6 @@ warnings.filterwarnings("ignore")
 st.set_page_config(page_title="App Investimentos_beta", page_icon="💰", layout="wide")
 st.markdown("análise simples de investimento")
 
-# Função para buscar o índice de medo e ganância (crypto fear and greed) - alternative.me
 @st.cache_data(ttl=3600)
 def get_fear_and_greed_index():
     try:
@@ -43,7 +42,7 @@ def plot_fear_greed_gauge(value):
     ))
     return fig
 
-# Período de análise
+
 periodo = st.selectbox(
     "Selecione o período de análise:",
     options=[
@@ -58,7 +57,6 @@ periodo = st.selectbox(
     format_func=lambda x: x[0]
 )
 
-# Entrada de ativos
 ativos_str = st.text_input(
     "Digite os tickers da bolsa separados por vírgula",
     value="",
@@ -75,9 +73,9 @@ if ativos_str:
             dados = yf.download(t, period=periodo[1], progress=False)
             if not dados.empty:
                 precos[t] = dados["Close"]
-                st.write(f"✅ Dados de {t} carregados com sucesso.")
+                st.write(f"✅ Dados de {t} carregados.")
             else:
-                st.warning(f"⚠️ Ticker '{t}' não retornou dados.")
+                st.warning(f"⚠️ Ticker '{t}' não encontrado.")
         except Exception as e:
             st.error(f"❌ Erro ao baixar dados de {t}: {e}")
 
@@ -183,7 +181,7 @@ if ativos_str:
 
             df_metrics = pd.DataFrame(metrics).T
 
-            # Métricas básicas
+            
             st.markdown("""
             **Explicações das Métricas Básicas:**  
             - **Retorno Total (%)**: Diferença percentual entre o preço final e inicial do ativo.  
@@ -192,7 +190,7 @@ if ativos_str:
             df_basicas = df_metrics[["Retorno Total (%)", "Sharpe"]]
             st.dataframe(df_basicas)
 
-            # Métricas avançadas
+            
             st.markdown("""
             **Explicações das Métricas Avançadas:**  
             - **Volatilidade Anualizada (%)**: Medida da variação dos retornos diária, anualizada; indica risco do ativo.  
@@ -295,8 +293,6 @@ if ativos_str:
 
                 fg_value = get_fear_and_greed_index()
 
-                # Layout lado a lado para gráfico da carteira e índice de medo e ganância
-                   # GRÁFICO DA EVOLUÇÃO DA CARTEIRA E ATIVOS ABAIXO DAS COLUNAS
             if soma_pesos == 100:
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(
